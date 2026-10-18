@@ -225,7 +225,7 @@ Do architektury doszły trzy uzupełnienia w ramach tych samych czterech proces�
   - Awaria procesu: brak wpływu (test 1.6). Gniazdo trzyma systemd, a zapytania frps czekają w kolejce.
   - Pełna niedostępność na 45 s (zatrzymane `entrypointd.socket` i `entrypointd.service`): sesja zerwana po 6,1 s, przy najbliższym Ping; od tej chwili ruch przez tunele kończy się błędem. Po starcie replika jest zdrowa po 18,2 s (backoff frpc do 20 s).
 - **Ograniczenia:** pełne zatrzymanie entrypointd (także gniazda) albo stała awaria startu wyłącza tunele po najbliższym heartbeat. Nie należy zatrzymywać `entrypointd.socket` na działającej bramie.
-- **Decyzja:** wpływ zmierzony; tabela w sekcji 3 zaktualizowana. **Do Twojej akceptacji.**
+- **Decyzja:** wpływ zmierzony; tabela w sekcji 3 zaktualizowana. **Zaakceptowane przez właściciela specyfikacji (2026-10-18).**
 
 ### 3.2 Odwołanie w trakcie częściowego stosowania rewizji, potem rollback
 
@@ -287,3 +287,8 @@ Serwer: Debian 13, systemd 257, 2 vCPU, 4 GB RAM, publiczny IPv4, bez firewalla 
 ## Zmiana adaptera: Express na node:http (2026-10-18)
 
 Na prośbę właściciela specyfikacji adapter `@k18k/entrypoint/express` zastąpił adapter `@k18k/entrypoint/http`. Przyjmuje dowolny handler `(req, res)`, więc aplikacje Express działają bez zmian, a SDK nie zależy już od Express. Logika drainu jest ta sama. Testy e2e (zestawy Replicas i SDK) uruchomiono ponownie na aplikacji testowej opartej na czystym `node:http`; wyniki eksperymentu 1 dla adaptera dotyczą obu wersji.
+
+## Decyzje po v0.1 (2026-10-18)
+
+- Wpływ pełnej niedostępności entrypointd na sesje (test 3.1b): zaakceptowany.
+- Jedna binarka z wbudowanymi Caddy i frps oraz supervisor `entrypoint run` (PID 1 w kontenerze): odrzucone. Architektura zostaje bez zmian: oficjalne binarki Caddy i frp, osobne procesy pod systemd.
