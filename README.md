@@ -101,6 +101,8 @@ W aplikacji zainstaluj SDK z gita. Przy instalacji SDK pobiera konektor i frpc d
 npm install github:k18k/entrypoint-ts#v0.1.1
 ```
 
+Nowsze npm (11.x) domyślnie nie uruchamia skryptów instalacyjnych zależności i pokazuje `npm warn install-scripts`. Wtedy SDK pobierze konektor przy pierwszym `expose()`/`tunnel()`. Żeby pobierał się już przy instalacji: `npm install-scripts approve @k18k/entrypoint`.
+
 SDK jest też w GitHub Packages jako `@k18k/entrypoint` (`@k18k:registry=https://npm.pkg.github.com` w `.npmrc`; GitHub wymaga tokenu `read:packages` także dla pakietów publicznych).
 
 **Adapter `node:http` (zalecany).** Daje pełny drain: `Connection: close`, zamknięcie SSE i WebSocketów kodem 1001. Przyjmuje dowolny handler `(req, res)`, więc działa z czystym `node:http` i z aplikacjami frameworków (aplikacja Express, `app.callback()` w Koa).

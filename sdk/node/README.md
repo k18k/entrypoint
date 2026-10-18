@@ -21,6 +21,8 @@ GitHub Packages wymaga zalogowania tokenem z uprawnieniem `read:packages`, takż
 
 Przy instalacji SDK pobiera z [wydania Entrypoint](https://github.com/k18k/entrypoint/releases) konektor i oficjalne frpc dla bieżącej platformy (Linux x64/arm64, macOS x64/arm64, Windows x64) i sprawdza ich sumy SHA256. Bez dostępu do sieci przy instalacji (albo z `--ignore-scripts`) pobranie nastąpi przy pierwszym `tunnel()`, albo ręcznie: `npx entrypoint-tunnel install-connector`. Własną binarkę konektora wskazuje `ENTRYPOINT_CONNECTOR`.
 
+Nowsze npm (11.x) domyślnie nie uruchamia skryptów instalacyjnych zależności i pokazuje `npm warn install-scripts`. Wtedy SDK pobierze konektor przy pierwszym `expose()`/`tunnel()`. Żeby pobierał się już przy instalacji: `npm install-scripts approve @k18k/entrypoint`.
+
 ## Użycie
 
 Pakiet połączenia `ENTRYPOINT_CONNECT` wydaje brama: `sudo entrypoint token create --service api`.
