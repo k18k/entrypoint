@@ -1,0 +1,11 @@
+ep.test {
+    file /zones/ep.test.db {
+        reload 1s
+    }
+    log
+    errors
+}
+. {
+    forward . 127.0.0.11
+    errors
+}

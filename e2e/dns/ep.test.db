@@ -1,0 +1,6 @@
+$ORIGIN ep.test.
+$TTL 1
+@       IN SOA ns.ep.test. admin.ep.test. 1 60 60 600 1
+@       IN NS  ns.ep.test.
+ns      IN A   172.28.0.2
+tunnel  IN A   172.28.0.10

@@ -1,0 +1,125 @@
+# Środowisko e2e (sekcja 18 specyfikacji). Uruchamiane przez `make e2e`.
+# Obrazy buduje `make e2e-build`. REPO to bezwzględna ścieżka repozytorium; runner widzi ją pod tą samą ścieżką,
+# żeby mógł sterować kontenerami przez docker compose.
+name: ep-e2e
+
+x-client: &client
+  image: ep-e2e-client
+  dns: [172.28.0.2]
+  cap_add: [NET_ADMIN]
+  init: true
+
+services:
+  dns:
+    image: coredns/coredns:1.14.7
+    container_name: ep-dns
+    command: ["-conf", "/etc/coredns/Corefile"]
+    volumes:
+      - ${REPO}/e2e/dns/Corefile:/etc/coredns/Corefile:ro
+      - ${REPO}/e2e/.run/zones:/zones
+    networks:
+      epnet: { ipv4_address: 172.28.0.2 }
+
+  acme:
+    image: ghcr.io/letsencrypt/pebble:2.10.1
+    container_name: ep-acme
+    command: ["-config", "/test/config/ep.json", "-dnsserver", "172.28.0.2:53", "-strict"]
+    environment:
+      PEBBLE_VA_NOSLEEP: "1"
+      PEBBLE_WFE_NONCEREJECT: "0"
+      PEBBLE_AUTHZREUSE: "0"
+    volumes:
+      - ${REPO}/e2e/pebble/pebble-config.json:/test/config/ep.json:ro
+    networks:
+      epnet:
+        ipv4_address: 172.28.0.3
+        aliases: [pebble]
+
+  gateway: &gateway
+    image: ep-e2e-gateway
+    container_name: ep-gateway
+    hostname: gateway
+    privileged: true
+    cgroup: private
+    tmpfs: [/run, /run/lock, /tmp]
+    dns: [172.28.0.2]
+    volumes:
+      - ${REPO}/dist:/dist:ro
+      - ${REPO}/scripts:/scripts:ro
+      - ${REPO}/e2e/pebble:/pebble:ro
+      - ${REPO}/e2e/.run/shared:/shared
+    networks:
+      epnet: { ipv4_address: 172.28.0.10 }
+      privnet: { ipv4_address: 172.29.0.10 }
+
+  # Druga maszyna bramy: restore pod nowym adresem IP przy stałej nazwie bramy.
+  gateway2:
+    <<: *gateway
+    container_name: ep-gateway2
+    hostname: gateway2
+    profiles: [restore]
+    networks:
+      epnet: { ipv4_address: 172.28.0.11 }
+      privnet: { ipv4_address: 172.29.0.11 }
+
+  upstream:
+    image: ep-e2e-upstream
+    container_name: ep-upstream
+    command: ["testsrv", "-addr", ":8080", "-name", "vpn-upstream"]
+    networks:
+      # Osiągalny wyłącznie z bramy, jak usługa za VPN.
+      privnet: { ipv4_address: 172.29.0.20 }
+
+  client-a:
+    <<: *client
+    container_name: ep-client-a
+    hostname: client-a
+    networks:
+      epnet: { ipv4_address: 172.28.0.21 }
+
+  client-b:
+    <<: *client
+    container_name: ep-client-b
+    hostname: client-b
+    networks:
+      epnet: { ipv4_address: 172.28.0.22 }
+
+  attacker:
+    <<: *client
+    container_name: ep-attacker
+    hostname: attacker
+    networks:
+      epnet: { ipv4_address: 172.28.0.23 }
+
+  chaos:
+    image: ep-e2e-chaos
+    profiles: [tools]
+
+  runner:
+    image: ep-e2e-runner
+    container_name: ep-runner
+    dns: [172.28.0.2]
+    working_dir: ${REPO}/e2e
+    environment:
+      REPO: ${REPO}
+      EP_E2E: "1"
+      GOMODCACHE: /cache/mod
+      GOCACHE: /cache/build
+    volumes:
+      - ${REPO}:${REPO}
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ep-e2e-gocache:/cache
+    command: ["sleep", "infinity"]
+    networks:
+      epnet: { ipv4_address: 172.28.0.30 }
+
+networks:
+  epnet:
+    ipam:
+      config: [{ subnet: 172.28.0.0/24 }]
+  privnet:
+    ipam:
+      config: [{ subnet: 172.29.0.0/24 }]
+
+volumes:
+  ep-e2e-gocache:

@@ -1,0 +1,4 @@
+dist
+!dist/connector
+!dist/npm
+!dist/e2e
