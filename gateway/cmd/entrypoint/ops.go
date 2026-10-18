@@ -83,11 +83,11 @@ func cmdDNSCheck(args []string) error {
 		wantSet[a] = true
 	}
 	type row struct {
-		Host     string   `json:"host"`
-		Record   string   `json:"record"`
-		Current  []string `json:"current"`
-		OK       bool     `json:"ok"`
-		Problem  string   `json:"problem,omitempty"`
+		Host    string   `json:"host"`
+		Record  string   `json:"record"`
+		Current []string `json:"current"`
+		OK      bool     `json:"ok"`
+		Problem string   `json:"problem,omitempty"`
 	}
 	var rows []row
 	problems := 0
