@@ -84,6 +84,15 @@ services:
     networks:
       epnet: { ipv4_address: 172.28.0.22 }
 
+  # Macierz SDK: Node 22 i Express 4.
+  client-n22:
+    <<: *client
+    image: ep-e2e-client-node22
+    container_name: ep-client-n22
+    hostname: client-n22
+    networks:
+      epnet: { ipv4_address: 172.28.0.24 }
+
   attacker:
     <<: *client
     container_name: ep-attacker

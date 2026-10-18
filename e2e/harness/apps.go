@@ -70,23 +70,23 @@ func (e *Env) StartApp(o AppOptions) *App {
 }
 
 func (a *App) url(path string) string {
-	ip := map[string]string{ClientA: "172.28.0.21", ClientB: "172.28.0.22", Attacker: "172.28.0.23"}[a.Container]
+	ip := map[string]string{ClientA: "172.28.0.21", ClientB: "172.28.0.22", ClientN22: "172.28.0.24", Attacker: "172.28.0.23"}[a.Container]
 	return fmt.Sprintf("http://%s:%d%s", ip, a.CtlPort, path)
 }
 
 // Stats to stan aplikacji testowej.
 type Stats struct {
-	Replica            string  `json:"replica"`
-	Requests           int     `json:"requests"`
-	Connections        int     `json:"connections"`
-	OpenConnections    int     `json:"openConnections"`
-	UploadsOK          int     `json:"uploadsOK"`
-	UploadsAborted     int     `json:"uploadsAborted"`
-	LastRequestAt      *int64  `json:"lastRequestAt"`
-	RequestsAfterDrain int     `json:"requestsAfterDrain"`
-	DrainStartedAt     *int64  `json:"drainStartedAt"`
-	State              string  `json:"state"`
-	Healthy            bool    `json:"healthy"`
+	Replica            string `json:"replica"`
+	Requests           int    `json:"requests"`
+	Connections        int    `json:"connections"`
+	OpenConnections    int    `json:"openConnections"`
+	UploadsOK          int    `json:"uploadsOK"`
+	UploadsAborted     int    `json:"uploadsAborted"`
+	LastRequestAt      *int64 `json:"lastRequestAt"`
+	RequestsAfterDrain int    `json:"requestsAfterDrain"`
+	DrainStartedAt     *int64 `json:"drainStartedAt"`
+	State              string `json:"state"`
+	Healthy            bool   `json:"healthy"`
 	Events             []struct {
 		Event  string `json:"event"`
 		T      int64  `json:"t"`
@@ -196,7 +196,7 @@ func (a *App) Running() bool {
 
 // StopAllApps kończy wszystkie aplikacje i konektory w kontenerach klientów.
 func (e *Env) StopAllApps() {
-	for _, c := range []string{ClientA, ClientB, Attacker} {
+	for _, c := range []string{ClientA, ClientB, ClientN22, Attacker} {
 		_, _ = e.Sh(c, "pkill -9 -f 'node server.js'; pkill -9 entrypoint-conn; pkill -9 frpc; rm -f /tmp/*.log; true")
 	}
 }

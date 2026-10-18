@@ -23,22 +23,23 @@ import (
 )
 
 const (
-	Gateway   = "ep-gateway"
-	Gateway2  = "ep-gateway2"
-	ClientA   = "ep-client-a"
-	ClientB   = "ep-client-b"
-	Attacker  = "ep-attacker"
-	Upstream  = "ep-upstream"
-	ACME      = "ep-acme"
-	DNS       = "ep-dns"
-	GatewayIP = "172.28.0.10"
-	Gateway2IP = "172.28.0.11"
+	Gateway     = "ep-gateway"
+	Gateway2    = "ep-gateway2"
+	ClientA     = "ep-client-a"
+	ClientB     = "ep-client-b"
+	ClientN22   = "ep-client-n22"
+	Attacker    = "ep-attacker"
+	Upstream    = "ep-upstream"
+	ACME        = "ep-acme"
+	DNS         = "ep-dns"
+	GatewayIP   = "172.28.0.10"
+	Gateway2IP  = "172.28.0.11"
 	UpstreamVPN = "172.29.0.20:8080"
-	TunnelName = "tunnel.ep.test"
-	Version   = "0.1.0"
+	TunnelName  = "tunnel.ep.test"
+	Version     = "0.1.0"
 )
 
-var Containers = []string{Gateway, Gateway2, ClientA, ClientB, Attacker, Upstream, ACME, DNS}
+var Containers = []string{Gateway, Gateway2, ClientA, ClientB, ClientN22, Attacker, Upstream, ACME, DNS}
 
 func Repo() string {
 	if r := os.Getenv("REPO"); r != "" {
@@ -454,7 +455,7 @@ func (e *Env) collect() {
 			_ = os.WriteFile(filepath.Join(dir, gw+"-db.txt"), []byte(out), 0o644)
 		}
 	}
-	for _, c := range []string{ClientA, ClientB, Attacker} {
+	for _, c := range []string{ClientA, ClientB, ClientN22, Attacker} {
 		if !running[c] {
 			continue
 		}

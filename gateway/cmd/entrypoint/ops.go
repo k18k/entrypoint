@@ -377,7 +377,7 @@ func cmdRestore(args []string) error {
 		return err
 	}
 	fmt.Printf("Odtworzono backup z %s (wersja %s, rewizja %d).\n", m.CreatedAt.Local().Format(time.DateTime), m.Version, m.LastApplied)
-	fmt.Printf("Unieważniono %d tokenów. Wydaj nowe: sudo entrypoint token create --service <nazwa>\n", n)
+	fmt.Printf("Unieważniono %d %s. Wydaj nowe: sudo entrypoint token create --service <nazwa>\n", n, plural(n, "token", "tokeny", "tokenów"))
 	fmt.Println("Jeśli zmienił się adres IP, zaktualizuj rekordy DNS (sudo entrypoint dns check).")
 	cfg, _ := loadConfig()
 	c := api.NewClient(cfg.APISocket)
@@ -391,4 +391,15 @@ func cmdRestore(args []string) error {
 		fmt.Println("Serwisy wymagające nowych tokenów:", strings.Join(names, ", "))
 	}
 	return nil
+}
+
+// plural wybiera polską formę liczebnika: 1 token, 2–4 tokeny, 5+ tokenów (12–14 tokenów).
+func plural(n int, one, few, many string) string {
+	switch {
+	case n == 1:
+		return one
+	case n%10 >= 2 && n%10 <= 4 && (n%100 < 12 || n%100 > 14):
+		return few
+	}
+	return many
 }

@@ -17,7 +17,7 @@ PLATFORMS ?= linux_amd64
 SUITE ?=
 RUN ?=
 
-.PHONY: all build deps dist sdk test e2e e2e-up e2e-down e2e-build e2e-shell clean
+.PHONY: all build deps dist sdk connector-image test e2e e2e-up e2e-down e2e-build e2e-shell clean
 
 all: dist sdk
 
@@ -64,6 +64,10 @@ sdk: dist
 	done
 	@ls dist/npm
 
+# Obraz konektora dla aplikacji w Dockerze.
+connector-image: dist
+	docker build -t entrypoint-connector:$(VERSION) -f docker/connector/Dockerfile dist/connector/linux_amd64
+
 test:
 	cd gateway && go vet ./... && go test ./...
 	cd e2e && go vet ./...
@@ -77,8 +81,10 @@ e2e-build: dist sdk e2e/.run
 	rm -f e2e/.run/zones/ep.test.db && cp e2e/dns/ep.test.db e2e/.run/zones/ep.test.db
 	docker build -q -t ep-e2e-gateway e2e/images/gateway
 	docker build -q -t ep-e2e-client -f e2e/images/client/Dockerfile .
+	docker build -q -t ep-e2e-client-node22 --build-arg NODE_IMAGE=node:22-trixie-slim --build-arg EXPRESS=4.22.3 -f e2e/images/client/Dockerfile .
 	docker build -q -t ep-e2e-upstream -f e2e/images/upstream/Dockerfile .
 	docker build -q -t ep-e2e-chaos e2e/images/chaos
+	docker build -q -t ep-e2e-connector -f docker/connector/Dockerfile dist/connector/linux_amd64
 	docker build -q -t ep-e2e-runner e2e/images/runner
 
 e2e-up: e2e-build

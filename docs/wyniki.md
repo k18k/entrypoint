@@ -254,3 +254,16 @@ Do architektury doszły trzy uzupełnienia w ramach tych samych czterech proces�
   - nowy token działa, a HTTPS pod nowym IP obsługuje ruch z certyfikatem z backupu.
 - **Ograniczenia:** po restore trzeba wydać nowe tokeny wszystkim serwisom (decyzja ze specyfikacji, sekcja 6).
 - **Decyzja:** zaliczone.
+
+## Lista gotowości v0.1 (sekcja 19)
+
+| Punkt | Stan |
+| --- | --- |
+| Wyniki eksperymentów 1–3 (zakres v0.1) w `docs/wyniki.md`, wariant B przyjęty albo odrzucony | Zrobione: B przyjęty |
+| Zestawy e2e 1–7 i 12 oraz części v0.1 zestawów 8, 9 i 11 zielone w Dockerze | Zrobione: `make e2e`, zestawy Install, TLS, Routing, Tunnels, Replicas, State, Revoke, Secrets, Ops, SDK, Resilience |
+| Instalacja na prawdziwym VPS z prawdziwym certyfikatem | **Otwarte**: brak VPS; wymaga testu dymnego na serwerze (Let's Encrypt staging, potem produkcja) |
+| Host do upstreamu przez VPN działa, łącznie z WebSocketem | W Dockerze: upstream w osobnej sieci prywatnej, WebSocket i SSE (`TestRouting_UpstreamWebSocketSSEAndHTTP2`). Na prawdziwym VPN: **otwarte**, razem z VPS |
+| Host do tunelu z dwiema replikami Express działa; zatrzymanie jednej nie przerywa serwisu | W Dockerze: testy 1.1, 1.5 i 1.8 oraz macierz SDK. Na VPS: **otwarte** |
+| Odwołany token nie łączy się ponownie, a jego aktywna sesja jest zrywana | Zrobione: testy 3.1 i 1.2b |
+| Backup i restore na świeżym kontenerze | Zrobione: `TestOps_BackupRestoreFreshContainer`, test 3.3 (nowy IP) |
+| README z instalacją i użyciem CLI | Zrobione: `README.md` |

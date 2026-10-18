@@ -160,9 +160,10 @@ func TestState_Drift(t *testing.T) {
 	e.Route("s.ep.test", "--to", h.UpstreamVPN)
 	e.WaitHTTPS("https://s.ep.test/", 200)
 	want := caddyConfigHash(e)
-	e.MustSh(h.Gateway, `curl -s --unix-socket /run/entrypoint-caddy/admin.sock -X DELETE http://caddy/config/apps/http/servers/entrypoint/routes/0`)
-	if caddyConfigHash(e) == want {
-		t.Fatal("zmiana z zewnątrz się nie powiodła")
+	// Pętla dryfu może cofnąć zmianę, zanim ją zobaczymy, więc sprawdzamy kod odpowiedzi i wpis w logu.
+	code := e.MustSh(h.Gateway, `curl -s -o /dev/null -w '%{http_code}' --unix-socket /run/entrypoint-caddy/admin.sock -X DELETE http://caddy/config/apps/http/servers/entrypoint/routes/0`)
+	if strings.TrimSpace(code) != "200" {
+		t.Fatalf("zmiana z zewnątrz się nie powiodła: %s", code)
 	}
 	t0 := time.Now()
 	e.Eventually(30*time.Second, 250*time.Millisecond, "przywrócenie konfiguracji", func() error {
@@ -171,8 +172,14 @@ func TestState_Drift(t *testing.T) {
 		}
 		return nil
 	})
+	var logged bool
+	e.Eventually(15*time.Second, 250*time.Millisecond, "wpis o dryfie", func() error {
+		if logged = strings.Contains(e.Journal(h.Gateway, "entrypointd"), "wykryto dryf"); !logged {
+			return errors.New("brak wpisu")
+		}
+		return nil
+	})
 	took := time.Since(t0)
-	logged := strings.Contains(e.Journal(h.Gateway, "entrypointd"), "wykryto dryf")
 	result(t, "dryf cofnięty po %s (interwał 5 s w testach, domyślnie 30 s); wpis w logu: %v", ms(took), logged)
 	if !logged {
 		t.Fatal("brak wpisu o dryfie")
