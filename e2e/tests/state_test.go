@@ -131,6 +131,7 @@ func TestState_KillDuringApply(t *testing.T) {
 
 // /load jest atomowe: błędna konfiguracja zostaje odrzucona, Caddy zostaje przy poprzedniej.
 func TestState_CaddyLoadAtomic(t *testing.T) {
+	h.Experiment(t)
 	e := h.New(t)
 	e.FreshGateway()
 	e.SetDNS(map[string]string{"s.ep.test": h.GatewayIP})
@@ -144,7 +145,7 @@ func TestState_CaddyLoadAtomic(t *testing.T) {
 	e.WaitHTTPS("https://s.ep.test/", 200)
 	// Walidacja przed zapisem: Caddy odrzuca wyrenderowaną konfigurację, rewizja nie powstaje.
 	revBefore := revisions(e)[0].Num
-	_, err := e.EP("route", "add", "s.ep.test/v", "--to", "172.29.0.20:0")
+	_, err := e.EP("route", "add", "s.ep.test/v", "--to", h.UpstreamIP+":0")
 	revAfter := revisions(e)[0].Num
 	result(t, "błędne /load: kod %s, konfiguracja bez zmian: %v; błędny upstream w CLI odrzucony przed zapisem: %v, nowa rewizja: %v", out, before == after, err != nil, revAfter != revBefore)
 	if before != after || out == "200" || err == nil || revAfter != revBefore {

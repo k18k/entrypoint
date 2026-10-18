@@ -246,12 +246,17 @@ npm run build      # tsdown -> lib/
 
 ```bash
 make test                     # testy jednostkowe
-make e2e                      # pełny zestaw e2e w Dockerze (~25 min, 56 testów)
-make e2e SUITE=Routing        # jeden zestaw: Smoke Install TLS Routing Tunnels Replicas State Revoke Ops SDK Resilience Secrets
-make e2e RUN='^TestTLS_Renewal$' KEEP=1   # jeden test, środowisko zostaje
+make e2e                      # testy e2e naszego kodu w Dockerze (~4 min, 4 równoległe kopie środowiska)
+make e2e-experiments          # eksperymenty: zachowanie Caddy i frp (~3 min; po zmianie versions.json)
+make e2e SUITE=Routing        # jeden zestaw: Smoke Install TLS Routing Tunnels Replicas State Revoke Ops SDK Secrets
+make e2e RUN='^TestOps_DNSCheck$' SHARDS=1 KEEP=1   # jeden test, środowisko zostaje
 ```
 
-Brama jest instalowana w testach prawdziwym `install.sh` na czystym kontenerze z systemd. Pebble zastępuje Let's Encrypt, a CoreDNS publiczny DNS. Artefakty każdego testu (logi, konfiguracje Caddy i frps, stan bazy) trafiają do `e2e/artifacts/`.
+`make e2e` sprawdza nasz kod i naszą konfigurację: instalator, rewizje, routing, plugin i uprawnienia, drain, SDK, backup, ochronę sekretów. Nie wymaga VPS-a. Brama jest instalowana prawdziwym `install.sh` na czystym kontenerze z systemd. Pebble zastępuje Let's Encrypt, a CoreDNS publiczny DNS.
+
+`make e2e-experiments` powtarza eksperymenty ze specyfikacji, które sprawdzają same Caddy i frp: odnawianie certyfikatów, atomowość `/load`, grupy i heartbeat frp, odporność na straty pakietów. Wyniki są w [docs/wyniki.md](docs/wyniki.md).
+
+Każda kopia środowiska ma własny projekt compose i podsieci `10.77.N.0/24` i `10.78.N.0/24`. Przydział testów do kopii opiera się na czasach z poprzedniego przebiegu (`e2e/durations.json`, aktualizowanym automatycznie). Artefakty każdego testu (logi, konfiguracje Caddy i frps, stan bazy) trafiają do `e2e/artifacts/`.
 
 ## Czego nie ma w v0.1
 

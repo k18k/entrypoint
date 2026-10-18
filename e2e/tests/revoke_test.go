@@ -51,8 +51,8 @@ func testRevokeSession(t *testing.T, heartbeat int, now bool) {
 		return nil
 	})
 	kicked := time.Since(t0)
-	// A nie łączy się ponownie.
-	time.Sleep(30 * time.Second)
+	// A nie łączy się ponownie (frpc ponawia logowanie co kilka sekund).
+	time.Sleep(15 * time.Second)
 	reconnected := proxyOnline(e, nameA)
 	ss := loadB.Stop()
 	win := h.Window(ss, t0, time.Now())
@@ -88,13 +88,17 @@ func testRevokeSession(t *testing.T, heartbeat int, now bool) {
 func TestRevoke_3_1_KickWithPing(t *testing.T) { testRevokeSession(t, 10, false) }
 
 // 3.1: A wyłącza heartbeat (nie współpracuje); brama i tak zrywa sesję.
-func TestRevoke_3_1_KickSilentClient(t *testing.T) { testRevokeSession(t, -1, false) }
+func TestRevoke_3_1_KickSilentClient(t *testing.T) {
+	h.Experiment(t)
+	testRevokeSession(t, -1, false)
+}
 
 // 3.1 (rezerwowo): natychmiastowe zerwanie restartem frps.
 func TestRevoke_3_1_KickWithFrpsRestart(t *testing.T) { testRevokeSession(t, 10, true) }
 
 // 3.1b: wybrano odrzucanie Ping, więc mierzymy wpływ długiej niedostępności entrypointd na sesje.
 func TestRevoke_3_1b_LongDaemonOutage(t *testing.T) {
+	h.Experiment(t)
 	e := apiSetup(t)
 	_, ca := e.Token("api")
 	a := e.StartApp(h.AppOptions{Container: h.ClientA, Connect: ca, Replica: "a", Wait: true})
@@ -135,7 +139,7 @@ func TestRevoke_3_1b_LongDaemonOutage(t *testing.T) {
 
 // 3.2: odwołanie w trakcie częściowego stosowania rewizji, potem rollback.
 func TestRevoke_3_2_RevokeDuringFailedApply(t *testing.T) {
-	e := apiSetup(t, "--test-apply-delay", "15s")
+	e := apiSetup(t, "--test-apply-delay", "6s")
 	idA, ca := e.Token("api")
 	_, cc := e.Token("api")
 	a := e.StartApp(h.AppOptions{Container: h.ClientA, Connect: ca, Replica: "a", Wait: true})
@@ -165,7 +169,13 @@ func TestRevoke_3_2_RevokeDuringFailedApply(t *testing.T) {
 	}
 	e.EPJSON(&revs, "revision", "list")
 	st := e.Status()
-	time.Sleep(15 * time.Second) // heartbeat sprawdza sesje wobec przywróconego snapshotu
+	// Heartbeat sprawdza sesje wobec przywróconego snapshotu: A zostaje zerwany.
+	e.Eventually(30*time.Second, 300*time.Millisecond, "zerwanie sesji A", func() error {
+		if !a.MustStats().HasEvent("revoked") {
+			return errors.New("A jeszcze połączony")
+		}
+		return nil
+	})
 	aStats := a.MustStats()
 	cStats := c.MustStats()
 	var toks []struct {

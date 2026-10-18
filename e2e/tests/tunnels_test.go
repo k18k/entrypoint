@@ -262,7 +262,12 @@ func TestTunnels_2_5_CARotation(t *testing.T) {
 		return nil
 	})
 	yBack := time.Since(t0)
-	time.Sleep(10 * time.Second)
+	e.Eventually(20*time.Second, 300*time.Millisecond, "tls_error klienta ze starym CA", func() error {
+		if !x.MustStats().HasEvent("tls_error") {
+			return errors.New("brak")
+		}
+		return nil
+	})
 	xs := x.MustStats()
 	xBack := xs.EventTime("healthy") > xs.EventTime("disconnected") && xs.EventTime("disconnected") > 0
 	reps := e.ReplicaSuffixes("api")

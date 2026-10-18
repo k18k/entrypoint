@@ -3,7 +3,8 @@
 #   make dist            paczka wydania bramy (dist/release/) i konektor
 #   make sdk             paczki npm SDK (dist/npm/)
 #   make test            testy jednostkowe
-#   make e2e             pełny zestaw e2e w Dockerze
+#   make e2e             testy e2e naszego kodu w Dockerze (SHARDS=4 równoległe kopie)
+#   make e2e-experiments eksperymenty: zachowanie Caddy i frp (po zmianie versions.json)
 #   make e2e SUITE=Routing   jeden zestaw (nazwy: Smoke Install TLS Routing Tunnels
 #                        Replicas State Revoke Ops SDK Resilience Secrets)
 #   make e2e-up / e2e-down   środowisko bez uruchamiania testów
@@ -16,8 +17,10 @@ COMPOSE := REPO=$(REPO) docker compose -f e2e/docker-compose.yml
 PLATFORMS ?= linux_amd64
 SUITE ?=
 RUN ?=
+SHARDS ?= 4
+KEEP ?=
 
-.PHONY: all build deps dist sdk connector-image test e2e e2e-up e2e-down e2e-build e2e-shell clean
+.PHONY: all build deps dist sdk connector-image test e2e e2e-experiments e2e-up e2e-down e2e-build e2e-shell clean
 
 all: dist sdk
 
@@ -73,33 +76,36 @@ test:
 	cd e2e && go vet ./...
 
 e2e/.run:
-	mkdir -p e2e/.run/zones e2e/.run/shared e2e/artifacts
+	mkdir -p e2e/.run e2e/artifacts
 
 e2e-build: dist sdk e2e/.run
 	mkdir -p dist/e2e
 	cd e2e && CGO_ENABLED=0 go build -o ../dist/e2e/testsrv ./cmd/testsrv
-	rm -f e2e/.run/zones/ep.test.db && cp e2e/dns/ep.test.db e2e/.run/zones/ep.test.db
-	docker build -q -t ep-e2e-gateway e2e/images/gateway
-	docker build -q -t ep-e2e-client -f e2e/images/client/Dockerfile .
-	docker build -q -t ep-e2e-client-node22 --build-arg NODE_IMAGE=node:22-trixie-slim -f e2e/images/client/Dockerfile .
-	docker build -q -t ep-e2e-upstream -f e2e/images/upstream/Dockerfile .
-	docker build -q -t ep-e2e-chaos e2e/images/chaos
-	docker build -q -t ep-e2e-connector -f docker/connector/Dockerfile dist/connector/linux_amd64
-	docker build -q -t ep-e2e-runner e2e/images/runner
+	docker build -q -t ep-e2e-gateway e2e/images/gateway >/dev/null
+	docker build -q -t ep-e2e-client -f e2e/images/client/Dockerfile . >/dev/null
+	docker build -q -t ep-e2e-client-node22 --build-arg NODE_IMAGE=node:22-trixie-slim -f e2e/images/client/Dockerfile . >/dev/null
+	docker build -q -t ep-e2e-upstream -f e2e/images/upstream/Dockerfile . >/dev/null
+	docker build -q -t ep-e2e-chaos e2e/images/chaos >/dev/null
+	docker build -q -t ep-e2e-connector -f docker/connector/Dockerfile dist/connector/linux_amd64 >/dev/null
+	docker build -q -t ep-e2e-runner e2e/images/runner >/dev/null
+
+# Testy naszego kodu (przed commitem), w SHARDS równoległych kopiach środowiska.
+e2e: e2e-build
+	e2e/run.sh e2e $(SHARDS) '$(if $(RUN),$(RUN),^Test$(SUITE))' $(KEEP)
+
+# Eksperymenty: zachowanie Caddy i frp, na którym opiera się specyfikacja
+# (uruchamiać po zmianie wersji w versions.json).
+e2e-experiments: e2e-build
+	e2e/run.sh experiments $(SHARDS) '$(if $(RUN),$(RUN),^Test$(SUITE))' $(KEEP)
 
 e2e-up: e2e-build
+	mkdir -p e2e/.run/0/zones e2e/.run/0/shared
+	cp -f e2e/dns/ep.test.db e2e/.run/0/zones/ep.test.db
+	docker volume create ep-e2e-gocache >/dev/null
 	$(COMPOSE) up -d --force-recreate --remove-orphans
 
 e2e-down:
-	$(COMPOSE) --profile restore --profile tools down -v --remove-orphans
-
-# Testy uruchamia kontener runner; artefakty trafiają do e2e/artifacts/.
-e2e: e2e-up
-	$(COMPOSE) exec -T runner go test -p 1 -count=1 -timeout 120m -v \
-	  -run '$(if $(RUN),$(RUN),^Test$(SUITE))' ./tests/ 2>&1 | tee e2e/artifacts/e2e.log; \
-	  status=$${PIPESTATUS[0]}; \
-	  $(COMPOSE) exec -T runner chown -R $$(id -u):$$(id -g) $(REPO)/e2e/artifacts $(REPO)/e2e/.run; \
-	  $(if $(KEEP),,$(MAKE) --no-print-directory e2e-down;) exit $$status
+	@for s in $$(seq 0 7); do SHARD=$$s NET=10.77.$$s PRIV=10.78.$$s $(COMPOSE) --profile restore --profile tools down --remove-orphans >/dev/null 2>&1; done
 
 e2e-shell:
 	$(COMPOSE) exec runner bash

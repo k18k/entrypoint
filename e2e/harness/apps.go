@@ -70,7 +70,7 @@ func (e *Env) StartApp(o AppOptions) *App {
 }
 
 func (a *App) url(path string) string {
-	ip := map[string]string{ClientA: "172.28.0.21", ClientB: "172.28.0.22", ClientN22: "172.28.0.24", Attacker: "172.28.0.23"}[a.Container]
+	ip := map[string]string{ClientA: IP(21), ClientB: IP(22), ClientN22: IP(24), Attacker: IP(23)}[a.Container]
 	return fmt.Sprintf("http://%s:%d%s", ip, a.CtlPort, path)
 }
 

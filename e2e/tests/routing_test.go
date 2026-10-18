@@ -41,10 +41,10 @@ func routingSetup(t *testing.T) *h.Env {
 	secondUpstream(e)
 	e.SetDNS(map[string]string{"r.ep.test": h.GatewayIP, "x.w.ep.test": h.GatewayIP, "y.w.ep.test": h.GatewayIP, "lim.ep.test": h.GatewayIP})
 	e.Route("r.ep.test", "--to", h.UpstreamVPN)
-	e.Route("r.ep.test/api", "--to", "172.29.0.20:8081")
+	e.Route("r.ep.test/api", "--to", h.UpstreamIP+":8081")
 	e.Route("r.ep.test/api/v2", "--to", h.UpstreamVPN, "--strip-prefix")
 	e.Route("*.w.ep.test", "--to", h.UpstreamVPN)
-	e.Route("x.w.ep.test", "--to", "172.29.0.20:8081")
+	e.Route("x.w.ep.test", "--to", h.UpstreamIP+":8081")
 	e.Route("lim.ep.test", "--to", h.UpstreamVPN, "--max-body", "1MB", "--header-timeout", "2s")
 	e.WaitHTTPS("https://r.ep.test/", 200)
 	return e
@@ -116,7 +116,7 @@ func TestRouting_Conflicts(t *testing.T) {
 		{"r.ep.test/../x", "--to", h.UpstreamVPN},
 		{"*.test", "--to", h.UpstreamVPN},
 		{"*.*.ep.test", "--to", h.UpstreamVPN},
-		{"172.28.0.10", "--to", h.UpstreamVPN},
+		{h.GatewayIP, "--to", h.UpstreamVPN},
 		{"r.ep.test/c", "--to", h.UpstreamVPN, "--acme-staging"},
 	} {
 		out, err := e.EP(append([]string{"route", "add"}, spec...)...)
@@ -167,6 +167,7 @@ func rawRequest(t *testing.T, e *h.Env, host, target string, headers ...string) 
 }
 
 func TestRouting_PathNormalization(t *testing.T) {
+	h.Experiment(t)
 	e := routingSetup(t)
 	cases := []struct{ target, wantName, wantPath string }{
 		{"/api/../x", "", ""},
@@ -199,7 +200,7 @@ func TestRouting_ForwardedHeaders(t *testing.T) {
 	xfp := strings.Join(ec.Headers["X-Forwarded-Proto"], ",")
 	result(t, "upstream widzi X-Forwarded-For=%q X-Forwarded-Host=%q X-Forwarded-Proto=%q X-Real-IP=%q Forwarded=%q Host=%q",
 		xff, xfh, xfp, strings.Join(ec.Headers["X-Real-Ip"], ","), strings.Join(ec.Headers["Forwarded"], ","), ec.Host)
-	if xff != "172.28.0.30" || xfh != "r.ep.test" || xfp != "https" || ec.Host != "r.ep.test" ||
+	if xff != h.RunnerIP || xfh != "r.ep.test" || xfp != "https" || ec.Host != "r.ep.test" ||
 		len(ec.Headers["X-Real-Ip"]) > 0 || len(ec.Headers["Forwarded"]) > 0 {
 		t.Fatal("nagłówki X-Forwarded-* od klienta nie zostały zastąpione")
 	}
@@ -271,6 +272,7 @@ func TestRouting_UpstreamWebSocketSSEAndHTTP2(t *testing.T) {
 }
 
 func TestRouting_HTTPRedirect(t *testing.T) {
+	h.Experiment(t)
 	routingSetup(t)
 	resp, err := (&http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Get("http://r.ep.test/x")
 	if err != nil {

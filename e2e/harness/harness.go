@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"net"
 	"net/http"
@@ -16,30 +17,59 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 )
 
-const (
-	Gateway     = "ep-gateway"
-	Gateway2    = "ep-gateway2"
-	ClientA     = "ep-client-a"
-	ClientB     = "ep-client-b"
-	ClientN22   = "ep-client-n22"
-	Attacker    = "ep-attacker"
-	Upstream    = "ep-upstream"
-	ACME        = "ep-acme"
-	DNS         = "ep-dns"
-	GatewayIP   = "172.28.0.10"
-	Gateway2IP  = "172.28.0.11"
-	UpstreamVPN = "172.29.0.20:8080"
-	TunnelName  = "tunnel.ep.test"
-	Version     = "0.1.0"
+// Kopia środowiska (shard): każda ma własny projekt compose, podsieci i nazwy kontenerów,
+// więc kilka kopii działa równolegle. EP_SHARD wybiera kopię, EP_SHARDS to ich liczba.
+var (
+	Shard  = envInt("EP_SHARD", 0)
+	Shards = envInt("EP_SHARDS", 1)
+	Net    = fmt.Sprintf("10.77.%d", Shard) // sieć publiczna środowiska
+	Priv   = fmt.Sprintf("10.78.%d", Shard) // sieć prywatna („VPN”)
+
+	Gateway     = name("gateway")
+	Gateway2    = name("gateway2")
+	ClientA     = name("client-a")
+	ClientB     = name("client-b")
+	ClientN22   = name("client-n22")
+	Attacker    = name("attacker")
+	Upstream    = name("upstream")
+	ACME        = name("acme")
+	DNS         = name("dns")
+	DNSIP       = Net + ".2"
+	GatewayIP   = Net + ".10"
+	Gateway2IP  = Net + ".11"
+	RunnerIP    = Net + ".30"
+	UpstreamIP  = Priv + ".20"
+	UpstreamVPN = UpstreamIP + ":8080"
+	// Sieć publiczna środowiska w Dockerze (dla kontenerów uruchamianych przez testy).
+	Network = fmt.Sprintf("ep-e2e-%d_epnet", Shard)
+
+	Containers = []string{Gateway, Gateway2, ClientA, ClientB, ClientN22, Attacker, Upstream, ACME, DNS}
 )
 
-var Containers = []string{Gateway, Gateway2, ClientA, ClientB, ClientN22, Attacker, Upstream, ACME, DNS}
+const (
+	TunnelName = "tunnel.ep.test"
+	Version    = "0.1.0"
+)
+
+func name(s string) string { return fmt.Sprintf("ep%d-%s", Shard, s) }
+
+// IP zwraca adres w sieci publicznej środowiska.
+func IP(last int) string { return fmt.Sprintf("%s.%d", Net, last) }
+
+func envInt(k string, def int) int {
+	if v, err := strconv.Atoi(os.Getenv(k)); err == nil {
+		return v
+	}
+	return def
+}
 
 func Repo() string {
 	if r := os.Getenv("REPO"); r != "" {
@@ -56,13 +86,93 @@ type Env struct {
 	Secrets []string // wartości, których nie może być w żadnych logach
 }
 
+var experiments sync.Map
+
+// Experiment oznacza test jako eksperyment: sprawdza zachowanie Caddy albo frp, na którym
+// opiera się specyfikacja, a nie nasz kod. Uruchamia go `make e2e-experiments`, nie `make e2e`.
+// Wywołanie musi poprzedzać h.New.
+func Experiment(t *testing.T) { experiments.Store(t.Name(), true) }
+
 func New(t *testing.T) *Env {
 	if os.Getenv("EP_E2E") == "" {
 		t.Skip("testy e2e uruchamia `make e2e`")
 	}
+	_, exp := experiments.Load(t.Name())
+	only := os.Getenv("EP_EXPERIMENTS") != ""
+	switch {
+	case exp && !only:
+		t.Skip("eksperyment: uruchamia go make e2e-experiments")
+	case !exp && only:
+		t.Skip("nie jest eksperymentem")
+	}
+	if Shards > 1 && shardOf(t.Name(), exp) != Shard {
+		t.Skip("test przydzielony innej kopii środowiska")
+	}
 	e := &Env{T: t, start: time.Now().Add(-time.Second)}
-	t.Cleanup(e.collect)
+	kind := "e2e"
+	if exp {
+		kind = "experiment"
+	}
+	t.Cleanup(func() { e.collect(kind) })
 	return e
+}
+
+// Przydział testów do kopii środowiska: najdłuższe testy (czasy z poprzedniego przebiegu,
+// e2e/durations.json) trafiają kolejno do najmniej obciążonej kopii. Nieznane testy: hash nazwy.
+type durationEntry struct {
+	Seconds    float64 `json:"seconds"`
+	Experiment bool    `json:"experiment"`
+}
+
+var (
+	assignOnce sync.Once
+	assignment map[string]int
+)
+
+func shardOf(name string, exp bool) int {
+	assignOnce.Do(func() {
+		assignment = map[string]int{}
+		var d map[string]durationEntry
+		b, err := os.ReadFile(filepath.Join(Repo(), "e2e", "durations.json"))
+		if err == nil {
+			_ = json.Unmarshal(b, &d)
+		}
+		for _, wantExp := range []bool{false, true} {
+			type item struct {
+				name string
+				sec  float64
+			}
+			var items []item
+			for n, de := range d {
+				if de.Experiment == wantExp {
+					items = append(items, item{n, de.Seconds})
+				}
+			}
+			sort.Slice(items, func(i, j int) bool {
+				if items[i].sec != items[j].sec {
+					return items[i].sec > items[j].sec
+				}
+				return items[i].name < items[j].name
+			})
+			load := make([]float64, Shards)
+			for _, it := range items {
+				best := 0
+				for i := range load {
+					if load[i] < load[best] {
+						best = i
+					}
+				}
+				load[best] += it.sec
+				assignment[it.name] = best
+			}
+		}
+	})
+	if s, ok := assignment[name]; ok {
+		return s
+	}
+	h := fnv.New32a()
+	h.Write([]byte(name))
+	return int(h.Sum32() % uint32(Shards))
 }
 
 // Run wykonuje polecenie i zwraca stdout; stderr trafia do błędu.
@@ -285,7 +395,9 @@ func (e *Env) SetDNSWithGateway(gatewayIP string, records map[string]string) {
 	e.T.Helper()
 	serial := serialCounter.Add(1)
 	var b strings.Builder
-	fmt.Fprintf(&b, "$ORIGIN ep.test.\n$TTL 1\n@ IN SOA ns.ep.test. admin.ep.test. %d 60 60 600 1\n@ IN NS ns.ep.test.\nns IN A 172.28.0.2\ntunnel IN A %s\n", serial, gatewayIP)
+	fmt.Fprintf(&b, "$ORIGIN ep.test.\n$TTL 1\n@ IN SOA ns.ep.test. admin.ep.test. %d 60 60 600 1\n@ IN NS ns.ep.test.\nns IN A %s\ntunnel IN A %s\n", serial, DNSIP, gatewayIP)
+	// Rekord kontrolny: jego pojawienie się oznacza, że CoreDNS wczytał tę wersję strefy.
+	fmt.Fprintf(&b, "serial-%d IN A 127.0.0.1\n", serial)
 	names := make([]string, 0, len(records))
 	for n := range records {
 		names = append(names, n)
@@ -295,7 +407,7 @@ func (e *Env) SetDNSWithGateway(gatewayIP string, records map[string]string) {
 		rel := strings.TrimSuffix(strings.TrimSuffix(n, "."), ".ep.test")
 		fmt.Fprintf(&b, "%s IN A %s\n", rel, records[n])
 	}
-	dir := filepath.Join(Repo(), "e2e", ".run", "zones")
+	dir := RunDir("zones")
 	tmp := filepath.Join(dir, ".ep.test.db.tmp")
 	if err := os.WriteFile(tmp, []byte(b.String()), 0o644); err != nil {
 		e.T.Fatal(err)
@@ -303,32 +415,21 @@ func (e *Env) SetDNSWithGateway(gatewayIP string, records map[string]string) {
 	if err := os.Rename(tmp, filepath.Join(dir, "ep.test.db")); err != nil {
 		e.T.Fatal(err)
 	}
-	// Czekamy, aż CoreDNS wczyta nowy numer seryjny.
-	e.Eventually(15*time.Second, 200*time.Millisecond, "przeładowanie strefy DNS", func() error {
-		r := &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, "udp", "172.28.0.2:53")
-		}}
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	r := &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "udp", DNSIP+":53")
+	}}
+	canary := fmt.Sprintf("serial-%d.ep.test", serial)
+	e.Eventually(15*time.Second, 100*time.Millisecond, "przeładowanie strefy DNS", func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-		// Odpowiedź z numerem seryjnym nie jest dostępna przez net.Resolver; sprawdzamy jeden z rekordów.
-		host := TunnelName
-		want := gatewayIP
-		for n, ip := range records {
-			host, want = n, ip
-			break
-		}
-		ips, err := r.LookupHost(ctx, host)
-		if err != nil {
-			return err
-		}
-		for _, ip := range ips {
-			if ip == want {
-				return nil
-			}
-		}
-		return fmt.Errorf("%s -> %v, oczekiwano %s", host, ips, want)
+		_, err := r.LookupHost(ctx, canary)
+		return err
 	})
-	time.Sleep(1200 * time.Millisecond) // pozostałe rekordy wchodzą tym samym przeładowaniem
+}
+
+// RunDir zwraca katalog roboczy tej kopii środowiska (e2e/.run/<shard>/<nazwa>).
+func RunDir(name string) string {
+	return filepath.Join(Repo(), "e2e", ".run", strconv.Itoa(Shard), name)
 }
 
 // PebbleRoots zwraca bieżące korzenie Pebble (zmieniają się przy każdym starcie Pebble).
@@ -413,7 +514,7 @@ func safeName(s string) string {
 }
 
 // collect zapisuje artefakty testu: logi kontenerów i usług, konfiguracje Caddy i frps, stan bazy, wynik.
-func (e *Env) collect() {
+func (e *Env) collect(kind string) {
 	dir := filepath.Join(Repo(), "e2e", "artifacts", safeName(e.T.Name()))
 	_ = os.RemoveAll(dir)
 	_ = os.MkdirAll(dir, 0o755)
@@ -470,4 +571,5 @@ func (e *Env) collect() {
 		result = "SKIP"
 	}
 	_ = os.WriteFile(filepath.Join(dir, "result.txt"), []byte(result+"\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "kind.txt"), []byte(kind+"\n"), 0o644)
 }

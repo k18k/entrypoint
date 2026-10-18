@@ -53,3 +53,33 @@ func TestOps_BackupRestoreFreshContainer(t *testing.T) {
 		t.Fatal("restore nie odtworzył stanu")
 	}
 }
+
+// dns check: wymagane rekordy i ich bieżący stan (bez czekania na certyfikat).
+func TestOps_DNSCheck(t *testing.T) {
+	e := h.New(t)
+	e.FreshGateway()
+	e.Route("late.ep.test", "--to", h.UpstreamVPN)
+	before, errBefore := e.EP("dns", "check")
+	e.SetDNS(map[string]string{"late.ep.test": h.GatewayIP, "other.ep.test": "10.0.0.1"})
+	e.Route("other.ep.test", "--to", h.UpstreamVPN)
+	after, errAfter := e.EP("dns", "check")
+	var rows []struct {
+		Host    string
+		OK      bool
+		Problem string
+	}
+	out, _ := e.EP("dns", "check", "--json")
+	_ = jsonUnmarshal(out, &rows)
+	result(t, "przed rekordem: błąd=%v; po: błąd=%v (other wskazuje inny adres); wiersze: %+v", errBefore != nil, errAfter != nil, rows)
+	if errBefore == nil || !strings.Contains(before, "brak rekordu") {
+		t.Fatalf("brak rekordu nie wykryty:\n%s", before)
+	}
+	if !strings.Contains(after, "inny adres") || errAfter == nil {
+		t.Fatalf("zły adres nie wykryty:\n%s", after)
+	}
+	for _, r := range rows {
+		if r.Host == "late.ep.test" && !r.OK {
+			t.Fatal("poprawny rekord oznaczony jako błędny")
+		}
+	}
+}

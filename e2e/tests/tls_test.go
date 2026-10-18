@@ -30,6 +30,7 @@ func peerCert(host string) (string, time.Time, error) {
 }
 
 func TestTLS_CertificateAfterDNSRecord(t *testing.T) {
+	h.Experiment(t)
 	e := h.New(t)
 	e.FreshGateway()
 	e.Route("late.ep.test", "--to", h.UpstreamVPN)
@@ -86,6 +87,7 @@ func TestTLS_NoCertificateWithoutRoute(t *testing.T) {
 }
 
 func TestTLS_OnDemandRateLimit(t *testing.T) {
+	h.Experiment(t)
 	e := h.New(t)
 	e.FreshGateway()
 	recs := map[string]string{}
@@ -117,6 +119,7 @@ func waitCert(host string, d time.Duration) error {
 
 // Odnowienie: krótki profil Pebble (90 s) i częste sprawdzanie odnowień w Caddy.
 func TestTLS_Renewal(t *testing.T) {
+	h.Experiment(t)
 	e := h.New(t)
 	e.FreshGateway("--test-acme-profile", "short", "--test-renew-interval", "5s")
 	e.SetDNS(map[string]string{"renew.ep.test": h.GatewayIP})
@@ -150,8 +153,14 @@ func TestTLS_ConnectorRejectsForeignCA(t *testing.T) {
 	other := e.MustExec(h.Gateway, "cat", "/pebble/pebble.minica.pem")
 	fake := rebundle(t, e, good, other)
 	a := e.StartApp(h.AppOptions{Container: h.ClientA, Connect: fake, Replica: "a"})
-	time.Sleep(15 * time.Second)
-	logs, _ := e.Sh(h.ClientA, "cat /tmp/app-a.log")
+	var logs string
+	e.Eventually(20*time.Second, 300*time.Millisecond, "tls_error w logu konektora", func() error {
+		logs, _ = e.Sh(h.ClientA, "cat /tmp/app-a.log")
+		if !strings.Contains(logs, "tls_error") {
+			return fmt.Errorf("brak")
+		}
+		return nil
+	})
 	healthy := strings.Contains(logs, `"ready":true`)
 	tlsErr := strings.Contains(logs, "tls_error") || strings.Contains(logs, "nie jest podpisany")
 	reps := e.ReplicaSuffixes("api")

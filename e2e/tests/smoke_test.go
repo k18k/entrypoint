@@ -27,7 +27,7 @@ func TestSmoke_Environment(t *testing.T) {
 		e.MustExec(c, "node", "-e", "import('@k18k/entrypoint').then(m => { if (!m.tunnel) process.exit(1) })")
 		e.MustSh(c, "cd /app && node -e \"import('@k18k/entrypoint').then(m => console.log(m.findConnector()))\"")
 	}
-	if out := e.MustSh(h.Gateway, "curl -s http://172.29.0.20:8080/ping"); !strings.Contains(out, "vpn-upstream") {
+	if out := e.MustSh(h.Gateway, "curl -s http://"+h.UpstreamVPN+"/ping"); !strings.Contains(out, "vpn-upstream") {
 		t.Fatalf("upstream przez sieć prywatną: %s", out)
 	}
 	if _, err := h.Run(nil, "docker", "run", "--rm", "--network", "container:"+h.ClientA, "--cap-add", "NET_ADMIN", "ep-e2e-chaos",

@@ -70,10 +70,17 @@ func testCut(t *testing.T, d time.Duration) {
 	}
 }
 
-func TestResilience_NetworkCut5s(t *testing.T)  { testCut(t, 5*time.Second) }
-func TestResilience_NetworkCut60s(t *testing.T) { testCut(t, 60*time.Second) }
+func TestResilience_NetworkCut5s(t *testing.T) {
+	h.Experiment(t)
+	testCut(t, 5*time.Second)
+}
+func TestResilience_NetworkCut60s(t *testing.T) {
+	h.Experiment(t)
+	testCut(t, 60*time.Second)
+}
 
 func TestResilience_PacketLoss(t *testing.T) {
+	h.Experiment(t)
 	e := apiSetup(t)
 	_, connect := e.Token("api")
 	e.StartApp(h.AppOptions{Container: h.ClientA, Connect: connect, Replica: "a", Wait: true})
@@ -92,6 +99,7 @@ func TestResilience_PacketLoss(t *testing.T) {
 
 // Restart Caddy zrywa połączenia; HTTP wraca, a klient WebSocket musi połączyć się ponownie.
 func TestResilience_CaddyRestart(t *testing.T) {
+	h.Experiment(t)
 	e := apiSetup(t)
 	_, connect := e.Token("api")
 	e.StartApp(h.AppOptions{Container: h.ClientA, Connect: connect, Replica: "a", Wait: true})

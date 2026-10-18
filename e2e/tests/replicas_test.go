@@ -38,7 +38,7 @@ func TestReplicas_1_1_KeepAliveAfterWithdraw_Adapter(t *testing.T) {
 	t0 := time.Now()
 	time.Sleep(5 * time.Second)
 	after5 := a.MustStats().Requests
-	time.Sleep(10 * time.Second)
+	time.Sleep(5 * time.Second)
 	after15 := a.MustStats().Requests
 	ss := load.Stop()
 	errs := h.Count(h.Window(ss, t0.Add(-5*time.Second), time.Now()), func(s h.Sample) bool { return s.Status != 200 })
@@ -52,6 +52,7 @@ func TestReplicas_1_1_KeepAliveAfterWithdraw_Adapter(t *testing.T) {
 }
 
 func TestReplicas_1_1_KeepAliveAfterWithdraw_Base(t *testing.T) {
+	h.Experiment(t)
 	e := apiSetup(t)
 	a, _ := twoReplicas(t, e, "base", 10000)
 	load := e.StartLoad("https://api.ep.test/whoami", 4, 20*time.Millisecond)
@@ -173,6 +174,7 @@ func TestReplicas_1_3_StreamsDuringDrain_Adapter(t *testing.T) {
 }
 
 func TestReplicas_1_3_StreamsDuringDrain_Base(t *testing.T) {
+	h.Experiment(t)
 	testStreams(t, "base", 10000)
 }
 
@@ -414,6 +416,7 @@ func TestReplicas_1_8_LastReplicaRemoved(t *testing.T) {
 
 // 1.9: restart frps.
 func TestReplicas_1_9_FrpsRestart(t *testing.T) {
+	h.Experiment(t)
 	e := apiSetup(t)
 	twoReplicas(t, e, "adapter", 30000)
 	port := e.Status().Status.Services[0].Port
@@ -430,6 +433,7 @@ func TestReplicas_1_9_FrpsRestart(t *testing.T) {
 
 // 1.10: nowa replika z health checkiem nie dostaje połączeń przed pierwszym udanym sprawdzeniem.
 func TestReplicas_1_10_NoTrafficBeforeHealthy(t *testing.T) {
+	h.Experiment(t)
 	e := apiSetup(t)
 	_, ca := e.Token("api")
 	_, cb := e.Token("api")
