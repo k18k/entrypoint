@@ -116,21 +116,21 @@ sudo entrypoint token create --service api      # wypisuje ENTRYPOINT_CONNECT ty
 W aplikacji zainstaluj SDK z paczek:
 
 ```bash
-npm install --omit=optional ./k18k-entrypoint-0.1.0.tgz ./k18k-entrypoint-linux-x64-0.1.0.tgz
+npm install ./k18k-entrypoint-0.1.0.tgz ./k18k-entrypoint-linux-x64-0.1.0.tgz
 ```
 
-**Adapter Express (zalecany).** Daje pełny drain: `Connection: close`, zamknięcie SSE i WebSocketów kodem 1001.
+**Adapter `node:http` (zalecany).** Daje pełny drain: `Connection: close`, zamknięcie SSE i WebSocketów kodem 1001. Przyjmuje dowolny handler `(req, res)`, więc działa z czystym `node:http` i z aplikacjami frameworków (aplikacja Express, `app.callback()` w Koa).
 
 ```js
-import express from "express";
-import { connectTo } from "@k18k/entrypoint/express";
+import { connectTo } from "@k18k/entrypoint/http";
 
-const app = express();
-app.get("/health", (req, res) => res.send("ok"));
-app.get("/", (req, res) => res.send("Cześć z tunelu"));
+const handler = (req, res) => {
+  if (req.url === "/health") return res.end("ok");
+  res.end("Cześć z tunelu");
+};
 
 // Serwer na 127.0.0.1:0 i tunel; SIGTERM uruchamia drain i kończy proces.
-const conn = await connectTo(app, { service: "api", healthCheck: "/health" });
+const conn = await connectTo(handler, { service: "api", healthCheck: "/health" });
 // WebSockety: new WebSocketServer({ server: conn.server }); przekaż je w opcji websockets.
 ```
 
@@ -172,7 +172,7 @@ services:
 
 - Repliki dzielą ruch **po połączeniach TCP**, nie po żądaniach. Nowa replika dostaje ruch na nowych połączeniach. Przy stałym ruchu stare połączenia keep-alive (bezczynność 4 s) zostają przy dotychczasowej replice.
 - Replika z nieudanym health checkiem wypada z grupy. Konektor restartuje wtedy frpc, żeby zerwać przypięte do niej połączenia, i replika wraca po udanym sprawdzeniu.
-- Kontrakt bazowy nie kontroluje połączeń aplikacji: przy drainie czeka do `drainTimeout` (domyślnie 30 s). Adapter Express kończy drain, gdy połączenia się zamkną.
+- Kontrakt bazowy nie kontroluje połączeń aplikacji: przy drainie czeka do `drainTimeout` (domyślnie 30 s). Adapter `node:http` kończy drain, gdy połączenia się zamkną.
 - Restart lub aktualizacja Caddy zrywa wszystkie połączenia, a restart frps wszystkie tunele. Klienci WebSocket i SSE muszą umieć połączyć się ponownie.
 
 ## Tokeny i odwołania
@@ -230,6 +230,17 @@ Restore **unieważnia wszystkie odtworzone tokeny**, bo backup nie zna później
 - Plugin frps dopuszcza tylko proxy `tcp`, a grupę, klucz grupy i port zawsze nadpisuje wartościami serwisu z tokenu. Pozostałe pola są sprawdzane z białą listą.
 - Certyfikaty w locie dla tras wildcard (`*.example.com`): tylko dla hostów z trasą i najwyżej 10 nowych subdomen na godzinę, żeby nie wyczerpać limitu Let's Encrypt.
 - Posiadacz tokenu jest zaufanym operatorem swojego serwisu: zmodyfikowany klient może wyłączyć health check, ale szkodzi tylko własnemu serwisowi.
+
+## Rozwój SDK
+
+`sdk/node`: TypeScript 7 z `erasableSyntaxOnly` i `isolatedDeclarations`, build `tsdown`, lint `oxlint`, formatowanie `oxfmt`:
+
+```bash
+cd sdk/node
+npm install
+npm run check      # typecheck (tsc --noEmit), oxlint, oxfmt --check
+npm run build      # tsdown -> lib/
+```
 
 ## Testy
 

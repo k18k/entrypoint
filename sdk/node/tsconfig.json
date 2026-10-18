@@ -1,14 +1,19 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
+    "target": "ES2023",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "outDir": "lib",
-    "rootDir": "src",
-    "declaration": true,
+    "lib": ["ES2023"],
+    "types": ["node"],
     "strict": true,
-    "skipLibCheck": true,
-    "esModuleInterop": true
+    "noEmit": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "isolatedDeclarations": true,
+    "declaration": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true
   },
   "include": ["src"]
 }

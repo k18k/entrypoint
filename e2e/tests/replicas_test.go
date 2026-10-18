@@ -27,7 +27,7 @@ func twoReplicas(t *testing.T, e *h.Env, mode string, drainMs int) (*h.App, *h.A
 // 1.1: nowe żądania na istniejących keep-alive Caddy po wycofaniu repliki.
 func TestReplicas_1_1_KeepAliveAfterWithdraw_Adapter(t *testing.T) {
 	e := apiSetup(t)
-	a, _ := twoReplicas(t, e, "express", 60000)
+	a, _ := twoReplicas(t, e, "adapter", 60000)
 	load := e.StartLoad("https://api.ep.test/whoami", 4, 20*time.Millisecond)
 	time.Sleep(3 * time.Second)
 	if a.MustStats().Requests == 0 {
@@ -169,7 +169,7 @@ func readSSE(ctx context.Context, e *h.Env, url string) (<-chan string, <-chan e
 
 // 1.3: SSE i WebSocket przez wycofywaną replikę.
 func TestReplicas_1_3_StreamsDuringDrain_Adapter(t *testing.T) {
-	testStreams(t, "express", 20000)
+	testStreams(t, "adapter", 20000)
 }
 
 func TestReplicas_1_3_StreamsDuringDrain_Base(t *testing.T) {
@@ -222,7 +222,7 @@ func testStreams(t *testing.T, mode string, drainMs int) {
 	code := websocket.CloseStatus(wsE)
 	result(t, "%s: WebSocket zamknięty po %s, kod %d (%v); SSE zakończone po %s (%v)", mode, ms(wsAt), code, wsE, ms(sseAt), sseE)
 	drain := time.Duration(drainMs) * time.Millisecond
-	if mode == "express" {
+	if mode == "adapter" {
 		if code != websocket.StatusGoingAway {
 			t.Fatalf("adapter: oczekiwano kodu 1001, jest %d", code)
 		}
@@ -285,7 +285,7 @@ func TestReplicas_1_4_DrainSteps(t *testing.T) {
 // 1.5: jedna replika zwraca błędy, druga jest zdrowa.
 func TestReplicas_1_5_UnhealthyReplica(t *testing.T) {
 	e := apiSetup(t)
-	a, _ := twoReplicas(t, e, "express", 30000)
+	a, _ := twoReplicas(t, e, "adapter", 30000)
 	load := e.StartLoad("https://api.ep.test/whoami", 4, 20*time.Millisecond)
 	time.Sleep(2 * time.Second)
 	t0 := time.Now()
@@ -415,7 +415,7 @@ func TestReplicas_1_8_LastReplicaRemoved(t *testing.T) {
 // 1.9: restart frps.
 func TestReplicas_1_9_FrpsRestart(t *testing.T) {
 	e := apiSetup(t)
-	twoReplicas(t, e, "express", 30000)
+	twoReplicas(t, e, "adapter", 30000)
 	port := e.Status().Status.Services[0].Port
 	e.MustExec(h.Gateway, "systemctl", "restart", "entrypoint-frps")
 	t0 := time.Now()

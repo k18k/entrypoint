@@ -9,7 +9,7 @@ import (
 	h "github.com/k18k/entrypoint/e2e/harness"
 )
 
-// Podstawowy przepływ: instalacja, serwis, trasa, token, replika Express, żądanie HTTPS.
+// Podstawowy przepływ: instalacja, serwis, trasa, token, replika z adapterem node:http, żądanie HTTPS.
 func TestTunnels_BasicFlow(t *testing.T) {
 	e := h.New(t)
 	e.FreshGateway()

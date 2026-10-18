@@ -263,7 +263,7 @@ func TestRouting_UpstreamWebSocketSSEAndHTTP2(t *testing.T) {
 			t.Fatal("SSE: brak zdarzeń")
 		}
 	}
-	// Upstream przez tunel: WebSocket także działa (adapter Express).
+	// Upstream przez tunel: WebSocket także działa (adapter node:http).
 	result(t, "HTTP do klienta: %s; WebSocket echo przez upstream w sieci prywatnej: ok; SSE: %d zdarzeń", ec.Proto, events)
 	if !strings.Contains(ec.Proto, "klient: HTTP/2.0") {
 		t.Fatal("brak HTTP/2 do klienta")

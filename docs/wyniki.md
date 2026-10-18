@@ -261,9 +261,29 @@ Do architektury doszły trzy uzupełnienia w ramach tych samych czterech proces�
 | --- | --- |
 | Wyniki eksperymentów 1–3 (zakres v0.1) w `docs/wyniki.md`, wariant B przyjęty albo odrzucony | Zrobione: B przyjęty |
 | Zestawy e2e 1–7 i 12 oraz części v0.1 zestawów 8, 9 i 11 zielone w Dockerze | Zrobione: `make e2e`, zestawy Install, TLS, Routing, Tunnels, Replicas, State, Revoke, Secrets, Ops, SDK, Resilience |
-| Instalacja na prawdziwym VPS z prawdziwym certyfikatem | **Otwarte**: brak VPS; wymaga testu dymnego na serwerze (Let's Encrypt staging, potem produkcja) |
-| Host do upstreamu przez VPN działa, łącznie z WebSocketem | W Dockerze: upstream w osobnej sieci prywatnej, WebSocket i SSE (`TestRouting_UpstreamWebSocketSSEAndHTTP2`). Na prawdziwym VPN: **otwarte**, razem z VPS |
-| Host do tunelu z dwiema replikami Express działa; zatrzymanie jednej nie przerywa serwisu | W Dockerze: testy 1.1, 1.5 i 1.8 oraz macierz SDK. Na VPS: **otwarte** |
+| Instalacja na prawdziwym VPS z prawdziwym certyfikatem | Zrobione: test dymny poniżej |
+| Host do upstreamu przez VPN działa, łącznie z WebSocketem | W Dockerze: upstream w osobnej sieci prywatnej, WebSocket i SSE (`TestRouting_UpstreamWebSocketSSEAndHTTP2`). Na prawdziwym VPN: **otwarte**, bo serwer testowy nie ma VPN |
+| Host do tunelu z dwiema replikami Express działa (od 2026-10-18 adapter `node:http`, zob. niżej); zatrzymanie jednej nie przerywa serwisu | Zrobione: w Dockerze (testy 1.1, 1.5 i 1.8, macierz SDK) i na VPS (test dymny poniżej) |
 | Odwołany token nie łączy się ponownie, a jego aktywna sesja jest zrywana | Zrobione: testy 3.1 i 1.2b |
 | Backup i restore na świeżym kontenerze | Zrobione: `TestOps_BackupRestoreFreshContainer`, test 3.3 (nowy IP) |
 | README z instalacją i użyciem CLI | Zrobione: `README.md` |
+
+## Test dymny na prawdziwym serwerze (2026-10-18)
+
+Serwer: Debian 13, systemd 257, 2 vCPU, 4 GB RAM, publiczny IPv4, bez firewalla systemu. Nazwa bramy `tunnel.mwdentry.stream`; DNS w Cloudflare (A `@` i `*`, DNS only). Repliki: dwie aplikacje Express (adapter) na komputerze w WSL2 za NAT-em, połączone przez internet.
+
+| Sprawdzenie | Wynik |
+| --- | --- |
+| `install.sh` i `entrypoint install` na czystym systemie | Usługi aktywne. **Wykryty błąd:** entrypointd wystartował przed Caddy, a rewizja początkowa zakończyła się statusem `failed` i brama nie miała zastosowanej rewizji. Poprawka: odtwarzanie czeka na admin API Caddy, a brak zastosowanej rewizji tworzy nową. Test regresyjny: `TestState_DaemonStartsBeforeCaddy`. Po aktualizacji rewizja 2 zastosowana automatycznie |
+| Certyfikat Let's Encrypt staging (`--acme-staging`) | Wystawiony dla `test.mwdentry.stream` (wystawca „(STAGING) Artificial Amaranth YE1”) |
+| Certyfikat produkcyjny | Wystawiony dla `app.mwdentry.stream` (Let's Encrypt YE2), weryfikacja zaufania przechodzi, HTTP/2 |
+| Przekierowanie HTTP na HTTPS | 308 |
+| Dwie repliki za NAT-em | Obie w grupie. Ruch sekwencyjny: 20 z 20 żądań do jednej repliki (jedno połączenie keep-alive Caddy). Ruch równoległy (20 naraz): 44/36 |
+| Drain jednej repliki pod ruchem | 300 z 300 żądań zakończonych kodem 200; replika usunięta z grupy |
+| Odwołanie tokenu pod ruchem | Sesja zerwana po 5,4 s, 400 z 400 żądań zakończonych kodem 200 na pozostałej replice, konektor zakończony zdarzeniem `revoked` |
+| WebSocket przez tunel | Echo przez `wss://app.mwdentry.stream/ws` |
+| Porty z internetu | Otwarte 22, 80, 443 i 55555; zamknięte 2019, 7400, 7500, 20000 |
+
+## Zmiana adaptera: Express na node:http (2026-10-18)
+
+Na prośbę właściciela specyfikacji adapter `@k18k/entrypoint/express` zastąpił adapter `@k18k/entrypoint/http`. Przyjmuje dowolny handler `(req, res)`, więc aplikacje Express działają bez zmian, a SDK nie zależy już od Express. Logika drainu jest ta sama. Testy e2e (zestawy Replicas i SDK) uruchomiono ponownie na aplikacji testowej opartej na czystym `node:http`; wyniki eksperymentu 1 dla adaptera dotyczą obu wersji.

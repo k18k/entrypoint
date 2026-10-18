@@ -1,8 +1,14 @@
 {
   "name": "@k18k/entrypoint",
   "version": "0.1.0",
-  "description": "SDK Entrypoint: tunel z aplikacji do bramy Entrypoint (kontrakt bazowy i adapter Express)",
+  "description": "SDK Entrypoint: tunel z aplikacji do bramy Entrypoint (kontrakt bazowy i adapter node:http)",
   "license": "MIT",
+  "bin": {
+    "entrypoint-tunnel": "./lib/cli.js"
+  },
+  "files": [
+    "lib"
+  ],
   "type": "module",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
@@ -11,45 +17,34 @@
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
     },
-    "./express": {
-      "types": "./lib/express.d.ts",
-      "default": "./lib/express.js"
+    "./http": {
+      "types": "./lib/http.d.ts",
+      "default": "./lib/http.js"
     }
-  },
-  "bin": {
-    "entrypoint-tunnel": "./lib/cli.js"
-  },
-  "files": [
-    "lib"
-  ],
-  "engines": {
-    "node": ">=22"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "test": "node --test test/"
-  },
-  "peerDependencies": {
-    "express": ">=4.18"
-  },
-  "peerDependenciesMeta": {
-    "express": {
-      "optional": true
-    }
-  },
-  "optionalDependencies": {
-    "@k18k/entrypoint-linux-x64": "0.1.0",
-    "@k18k/entrypoint-linux-arm64": "0.1.0",
-    "@k18k/entrypoint-darwin-x64": "0.1.0",
-    "@k18k/entrypoint-darwin-arm64": "0.1.0",
-    "@k18k/entrypoint-win32-x64": "0.1.0"
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint -c oxlint.config.ts",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
+    "check": "npm run typecheck && npm run lint && npm run fmt:check"
   },
   "devDependencies": {
-    "@types/express": "5.0.6",
-    "@types/node": "24.19.2",
-    "@types/ws": "8.18.2",
-    "express": "5.3.0",
-    "typescript": "5.9.3",
-    "ws": "8.22.0"
+    "@types/node": "26.6.5",
+    "oxfmt": "0.73.0",
+    "oxlint": "1.88.0",
+    "tsdown": "0.23.1",
+    "typescript": "7.0.2"
+  },
+  "optionalDependencies": {
+    "@k18k/entrypoint-darwin-arm64": "0.1.0",
+    "@k18k/entrypoint-darwin-x64": "0.1.0",
+    "@k18k/entrypoint-linux-arm64": "0.1.0",
+    "@k18k/entrypoint-linux-x64": "0.1.0",
+    "@k18k/entrypoint-win32-x64": "0.1.0"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

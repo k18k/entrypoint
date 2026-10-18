@@ -52,7 +52,7 @@ dist: deps build
 
 # Pakiety npm: SDK i pakiety platform z konektorem i frpc.
 sdk: dist
-	cd sdk/node && npm install --no-audit --no-fund --omit=optional && npx tsc -p tsconfig.json
+	cd sdk/node && npm install --no-audit --no-fund && npm run check && npm run build
 	mkdir -p dist/npm
 	cd sdk/node && npm pack --pack-destination ../../dist/npm >/dev/null
 	@for p in $(PLATFORMS); do \
@@ -81,7 +81,7 @@ e2e-build: dist sdk e2e/.run
 	rm -f e2e/.run/zones/ep.test.db && cp e2e/dns/ep.test.db e2e/.run/zones/ep.test.db
 	docker build -q -t ep-e2e-gateway e2e/images/gateway
 	docker build -q -t ep-e2e-client -f e2e/images/client/Dockerfile .
-	docker build -q -t ep-e2e-client-node22 --build-arg NODE_IMAGE=node:22-trixie-slim --build-arg EXPRESS=4.22.3 -f e2e/images/client/Dockerfile .
+	docker build -q -t ep-e2e-client-node22 --build-arg NODE_IMAGE=node:22-trixie-slim -f e2e/images/client/Dockerfile .
 	docker build -q -t ep-e2e-upstream -f e2e/images/upstream/Dockerfile .
 	docker build -q -t ep-e2e-chaos e2e/images/chaos
 	docker build -q -t ep-e2e-connector -f docker/connector/Dockerfile dist/connector/linux_amd64

@@ -27,7 +27,7 @@ type AppOptions struct {
 	Connect   string
 	Service   string
 	Replica   string
-	Mode      string // express albo base
+	Mode      string // adapter albo base
 	DrainMs   int
 	CtlPort   int
 	Health    string
@@ -39,7 +39,7 @@ type AppOptions struct {
 func (e *Env) StartApp(o AppOptions) *App {
 	e.T.Helper()
 	if o.Mode == "" {
-		o.Mode = "express"
+		o.Mode = "adapter"
 	}
 	if o.CtlPort == 0 {
 		o.CtlPort = 9000

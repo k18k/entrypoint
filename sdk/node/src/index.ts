@@ -33,9 +33,22 @@ export interface TunnelOptions {
 }
 
 export type TunnelEventName =
-  | "starting" | "connected" | "healthy" | "unhealthy" | "rejected" | "disconnected"
-  | "draining" | "withdrawn" | "drained" | "drain_timeout" | "revoked" | "auth_failed"
-  | "tls_error" | "error" | "exit";
+  | "starting"
+  | "connected"
+  | "healthy"
+  | "unhealthy"
+  | "rejected"
+  | "disconnected"
+  | "draining"
+  | "withdrawn"
+  | "drained"
+  | "drain_timeout"
+  | "revoked"
+  | "auth_failed"
+  | "tls_error"
+  | "connect_failed"
+  | "error"
+  | "exit";
 
 export interface TunnelEvent {
   event: TunnelEventName;
@@ -47,60 +60,66 @@ export interface TunnelEvent {
 }
 
 export class TunnelError extends Error {
-  constructor(message: string, readonly event?: TunnelEvent) {
+  readonly event: TunnelEvent | undefined;
+
+  constructor(message: string, event?: TunnelEvent) {
     super(message);
     this.name = "TunnelError";
+    this.event = event;
   }
 }
 
 /** Uchwyt tunelu. Zdarzenia konektora są tylko obserwowane. */
 export class Tunnel extends EventEmitter {
-  replica = "";
+  replica: string = "";
   state: TunnelEventName = "starting";
   readonly exited: Promise<number>;
-  private child: ChildProcess;
-  private draining?: Promise<number>;
+  #child: ChildProcess;
+  #draining: Promise<number> | undefined;
 
   constructor(child: ChildProcess) {
     super();
-    this.child = child;
+    this.#child = child;
     this.exited = new Promise((resolve) => {
       child.on("exit", (code, signal) => resolve(code ?? (signal ? 1 : 0)));
     });
-    const rl = createInterface({ input: child.stdout! });
-    rl.on("line", (line) => {
-      let ev: TunnelEvent;
-      try {
-        ev = JSON.parse(line);
-      } catch {
-        return;
-      }
-      if (ev.replica) this.replica = ev.replica;
-      this.state = ev.event;
-      this.emit("event", ev);
-      this.emit(ev.event, ev);
-    });
+    if (child.stdout) {
+      const rl = createInterface({ input: child.stdout });
+      rl.on("line", (line) => this.#onLine(line));
+    }
     // Rura stdin jest „linią życia”: gdy proces Node zginie, konektor kończy frpc i siebie.
-    child.stdin!.on("error", () => {});
+    child.stdin?.on("error", () => {});
   }
 
-  private send(cmd: object) {
-    if (this.child.stdin && !this.child.stdin.destroyed) {
-      this.child.stdin.write(JSON.stringify(cmd) + "\n");
+  #onLine(line: string): void {
+    let ev: TunnelEvent;
+    try {
+      ev = JSON.parse(line) as TunnelEvent;
+    } catch {
+      return;
     }
+    if (ev.replica) this.replica = ev.replica;
+    this.state = ev.event;
+    this.emit("event", ev);
+    this.emit(ev.event, ev);
+  }
+
+  #send(cmd: object): void {
+    const stdin = this.#child.stdin;
+    if (stdin && !stdin.destroyed) stdin.write(JSON.stringify(cmd) + "\n");
   }
 
   /**
    * Drain repliki: wycofanie z grupy (brak nowych połączeń), wygaszanie istniejących
    * połączeń przez timeoutMs, potem zakończenie frpc. Kontrakt bazowy czeka tylko na
-   * wygaśnięcie połączeń; adapter frameworka zgłasza ich koniec przez notifyDrained().
+   * wygaśnięcie połączeń; adapter zgłasza ich koniec przez notifyDrained().
    */
   drain(opts: { timeoutMs?: number } = {}): Promise<number> {
-    if (!this.draining) {
-      this.send({ cmd: "drain", timeoutMs: opts.timeoutMs ?? 0 });
-      this.draining = this.exited;
+    if (!this.#draining) {
+      this.#send({ cmd: "drain", timeoutMs: opts.timeoutMs ?? 0 });
+      this.#draining = this.exited;
     }
-    return this.draining;
+    return this.#draining;
   }
 
   /** Czeka na wycofanie repliki z grupy (krok 1 drainu). */
@@ -108,26 +127,25 @@ export class Tunnel extends EventEmitter {
     if (this.state === "withdrawn") return Promise.resolve();
     return new Promise((resolve) => {
       this.once("withdrawn", () => resolve());
-      this.exited.then(() => resolve());
+      void this.exited.then(() => resolve());
     });
   }
 
   /** Adapter: wszystkie połączenia zamknięte, konektor może zakończyć frpc. */
-  notifyDrained() {
-    this.send({ cmd: "drained" });
+  notifyDrained(): void {
+    this.#send({ cmd: "drained" });
   }
 
   /** Natychmiastowe zamknięcie tunelu, bez drainu. */
   close(): Promise<number> {
-    this.send({ cmd: "stop" });
-    this.child.stdin?.end();
+    this.#send({ cmd: "stop" });
+    this.#child.stdin?.end();
     return this.exited;
   }
 }
 
 function platformPackage(): string {
-  const arch = process.arch === "x64" ? "x64" : process.arch;
-  return `@k18k/entrypoint-${process.platform}-${arch}`;
+  return `@k18k/entrypoint-${process.platform}-${process.arch}`;
 }
 
 /** Znajduje binarkę konektora. */
@@ -143,19 +161,14 @@ export function findConnector(explicit?: string): string {
   } catch {
     // pakiet platformy nie jest zainstalowany
   }
-  for (const c of candidates) {
-    if (existsSync(c)) return c;
-  }
+  const found = candidates.find((c) => existsSync(c));
+  if (found) return found;
   throw new TunnelError(
     `nie znaleziono ${exe}; zainstaluj ${platformPackage()} albo ustaw ENTRYPOINT_CONNECTOR`,
   );
 }
 
-/** Otwiera tunel do lokalnego adresu aplikacji. */
-export async function tunnel(opts: TunnelOptions): Promise<Tunnel> {
-  const connect = opts.connect ?? process.env.ENTRYPOINT_CONNECT;
-  if (!connect) throw new TunnelError("brak pakietu połączenia (ENTRYPOINT_CONNECT)");
-  const bin = findConnector(opts.connectorPath);
+function connectorArgs(opts: TunnelOptions): string[] {
   const args = ["tunnel", "--parent-pipe", "--upstream", opts.upstream];
   if (opts.service) args.push("--service", opts.service);
   if (opts.healthCheck) args.push("--health", opts.healthCheck);
@@ -163,22 +176,16 @@ export async function tunnel(opts: TunnelOptions): Promise<Tunnel> {
   if (opts.healthMaxFailed) args.push("--health-max-failed", String(opts.healthMaxFailed));
   if (opts.drainTimeoutMs) args.push("--drain-timeout", `${opts.drainTimeoutMs}ms`);
   if (opts.replica) args.push("--replica", opts.replica);
-  // Pakiet połączenia przekazujemy wyłącznie przez środowisko konektora, nigdy w argumentach.
-  const env = { ...process.env, ENTRYPOINT_CONNECT: connect };
-  const child = spawn(bin, args, {
-    env,
-    stdio: ["pipe", "pipe", opts.log === "ignore" ? "ignore" : "inherit"],
-  });
-  const t = new Tunnel(child);
-  if (opts.waitReady === false) return t;
+  return args;
+}
 
-  const timeoutMs = opts.readyTimeoutMs ?? 60_000;
-  await new Promise<void>((resolve, reject) => {
+function waitReady(t: Tunnel, timeoutMs: number): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup();
       reject(new TunnelError(`tunel nie był gotowy w ${timeoutMs} ms (stan: ${t.state})`));
     }, timeoutMs);
-    const onEvent = (ev: TunnelEvent) => {
+    const onEvent = (ev: TunnelEvent): void => {
       if (ev.event === "healthy") {
         cleanup();
         resolve();
@@ -187,16 +194,29 @@ export async function tunnel(opts: TunnelOptions): Promise<Tunnel> {
         reject(new TunnelError(ev.reason ?? ev.event, ev));
       }
     };
-    const onExit = (code: number) => {
-      cleanup();
-      reject(new TunnelError(`konektor zakończył działanie (kod ${code}) przed gotowością`));
-    };
-    const cleanup = () => {
+    const cleanup = (): void => {
       clearTimeout(timer);
       t.off("event", onEvent);
     };
     t.on("event", onEvent);
-    t.exited.then(onExit);
+    void t.exited.then((code) => {
+      cleanup();
+      reject(new TunnelError(`konektor zakończył działanie (kod ${code}) przed gotowością`));
+    });
   });
+}
+
+/** Otwiera tunel do lokalnego adresu aplikacji. */
+export async function tunnel(opts: TunnelOptions): Promise<Tunnel> {
+  const connect = opts.connect ?? process.env.ENTRYPOINT_CONNECT;
+  if (!connect) throw new TunnelError("brak pakietu połączenia (ENTRYPOINT_CONNECT)");
+  const bin = findConnector(opts.connectorPath);
+  // Pakiet połączenia przekazujemy wyłącznie przez środowisko konektora, nigdy w argumentach.
+  const child = spawn(bin, connectorArgs(opts), {
+    env: { ...process.env, ENTRYPOINT_CONNECT: connect },
+    stdio: ["pipe", "pipe", opts.log === "ignore" ? "ignore" : "inherit"],
+  });
+  const t = new Tunnel(child);
+  if (opts.waitReady !== false) await waitReady(t, opts.readyTimeoutMs ?? 60_000);
   return t;
 }

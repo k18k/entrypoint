@@ -193,7 +193,7 @@ func TestTunnels_2_3_PortsNeverReused(t *testing.T) {
 // 2.4: restarty entrypointd i frps w różnej kolejności; status zgodny ze stanem frps.
 func TestTunnels_2_4_StatusConsistency(t *testing.T) {
 	e := apiSetup(t)
-	twoReplicas(t, e, "express", 30000)
+	twoReplicas(t, e, "adapter", 30000)
 	steps := []struct {
 		name string
 		cmds []string

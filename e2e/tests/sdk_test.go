@@ -1,6 +1,6 @@
 package tests
 
-// Zestaw e2e 9: SDK i adapter Express (v0.1) w macierzy Node.js i Express.
+// Zestaw e2e 9: SDK (kontrakt bazowy i adapter node:http) w macierzy wersji Node.js.
 
 import (
 	"context"
@@ -21,12 +21,12 @@ type sdkCase struct {
 }
 
 var sdkMatrix = []sdkCase{
-	{h.ClientA, "Node 24 + Express 5"},
-	{h.ClientN22, "Node 22 + Express 4"},
+	{h.ClientA, "Node 24"},
+	{h.ClientN22, "Node 22"},
 }
 
 func versions(e *h.Env, c string) string {
-	out, _ := e.Sh(c, `cd /app && node -p "process.version + ' express ' + require('express/package.json').version"`)
+	out, _ := e.Sh(c, `node -p process.version`)
 	return strings.TrimSpace(out)
 }
 
@@ -35,7 +35,7 @@ func TestSDK_Matrix(t *testing.T) {
 	e := apiSetup(t)
 	var lines []string
 	for _, sc := range sdkMatrix {
-		for _, mode := range []string{"base", "express"} {
+		for _, mode := range []string{"base", "adapter"} {
 			_, connect := e.Token("api")
 			rep := strings.ToLower(strings.ReplaceAll(fmt.Sprintf("%s-%s", mode, strings.Fields(sc.label)[1]), ".", ""))
 			a := e.StartApp(h.AppOptions{Container: sc.container, Connect: connect, Replica: rep, Mode: mode, DrainMs: 5000, Wait: true})
@@ -70,7 +70,7 @@ func TestSDK_Matrix(t *testing.T) {
 				return nil
 			})
 			lines = append(lines, fmt.Sprintf("%s (%s) %s: echo WS %q, zamknięcie WS po %s kodem %d", sc.label, versions(e, sc.container), mode, m, ms(wsAfter), closeCode))
-			if mode == "express" && closeCode != websocket.StatusGoingAway {
+			if mode == "adapter" && closeCode != websocket.StatusGoingAway {
 				t.Errorf("%s: adapter nie zamknął WebSocketu kodem 1001 (%d)", sc.label, closeCode)
 			}
 			if mode == "base" && wsAfter < 4*time.Second {
@@ -86,7 +86,7 @@ func TestSDK_Matrix(t *testing.T) {
 func TestSDK_KillParent(t *testing.T) {
 	e := apiSetup(t)
 	var lines []string
-	for _, mode := range []string{"base", "express"} {
+	for _, mode := range []string{"base", "adapter"} {
 		_, connect := e.Token("api")
 		a := e.StartApp(h.AppOptions{Container: h.ClientA, Connect: connect, Replica: "k" + mode, Mode: mode, Wait: true})
 		t0 := time.Now()
