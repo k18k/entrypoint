@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // npx @k18k/entrypoint tunnel --service api --upstream http://127.0.0.1:3000
 import { parseArgs } from "node:util";
-import { tunnel, TunnelError } from "./index.js";
+import { ensureConnector, tunnel, TunnelError } from "./index.js";
 
 const USAGE = `użycie: entrypoint-tunnel tunnel --upstream http://127.0.0.1:3000 [--service <nazwa>]
        [--health /health] [--drain-timeout 30s] [--replica <nazwa>]
+       entrypoint-tunnel install-connector   (pobiera konektor i frpc dla tej platformy)
 Pakiet połączenia: zmienna ENTRYPOINT_CONNECT.`;
 
 function usage(): never {
@@ -21,6 +22,10 @@ function parseDuration(s: string): number {
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
+  if (argv[0] === "install-connector") {
+    console.error(`entrypoint: konektor w ${await ensureConnector()}`);
+    return;
+  }
   if (argv[0] === "tunnel") argv.shift();
   let values;
   try {

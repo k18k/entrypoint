@@ -5,3 +5,4 @@ node_modules/
 /sdk/node/lib/
 /e2e/.run/
 /dist/npm-src/
+/sdk/node/connector.json

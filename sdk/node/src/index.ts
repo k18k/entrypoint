@@ -7,6 +7,9 @@ import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
+import { connectorDirs, connectorExe, ensureConnector } from "./connector.js";
+
+export { ensureConnector } from "./connector.js";
 
 export interface TunnelOptions {
   /** Pakiet połączenia ENTRYPOINT_CONNECT (domyślnie z process.env). */
@@ -148,9 +151,12 @@ function platformPackage(): string {
   return `@k18k/entrypoint-${process.platform}-${process.arch}`;
 }
 
-/** Znajduje binarkę konektora. */
+/**
+ * Znajduje binarkę konektora: jawna ścieżka, ENTRYPOINT_CONNECTOR, pakiet platformy
+ * (jeśli zainstalowany), katalog bin/ paczki albo pamięć podręczna pobrań.
+ */
 export function findConnector(explicit?: string): string {
-  const exe = process.platform === "win32" ? "entrypoint-connector.exe" : "entrypoint-connector";
+  const exe = connectorExe();
   const candidates: string[] = [];
   if (explicit) candidates.push(explicit);
   if (process.env.ENTRYPOINT_CONNECTOR) candidates.push(process.env.ENTRYPOINT_CONNECTOR);
@@ -161,11 +167,28 @@ export function findConnector(explicit?: string): string {
   } catch {
     // pakiet platformy nie jest zainstalowany
   }
+  for (const dir of connectorDirs()) candidates.push(join(dir, exe));
   const found = candidates.find((c) => existsSync(c));
   if (found) return found;
   throw new TunnelError(
-    `nie znaleziono ${exe}; zainstaluj ${platformPackage()} albo ustaw ENTRYPOINT_CONNECTOR`,
+    `nie znaleziono ${exe}; uruchom npx entrypoint-tunnel install-connector albo ustaw ENTRYPOINT_CONNECTOR`,
   );
+}
+
+async function resolveConnector(explicit?: string): Promise<string> {
+  try {
+    return findConnector(explicit);
+  } catch (err) {
+    if (explicit || process.env.ENTRYPOINT_CONNECTOR || process.env.ENTRYPOINT_NO_DOWNLOAD)
+      throw err;
+    try {
+      return await ensureConnector();
+    } catch (dl) {
+      throw new TunnelError(
+        `nie udało się pobrać konektora: ${dl instanceof Error ? dl.message : String(dl)}`,
+      );
+    }
+  }
 }
 
 function connectorArgs(opts: TunnelOptions): string[] {
@@ -210,7 +233,7 @@ function waitReady(t: Tunnel, timeoutMs: number): Promise<void> {
 export async function tunnel(opts: TunnelOptions): Promise<Tunnel> {
   const connect = opts.connect ?? process.env.ENTRYPOINT_CONNECT;
   if (!connect) throw new TunnelError("brak pakietu połączenia (ENTRYPOINT_CONNECT)");
-  const bin = findConnector(opts.connectorPath);
+  const bin = await resolveConnector(opts.connectorPath);
   // Pakiet połączenia przekazujemy wyłącznie przez środowisko konektora, nigdy w argumentach.
   const child = spawn(bin, connectorArgs(opts), {
     env: { ...process.env, ENTRYPOINT_CONNECT: connect },

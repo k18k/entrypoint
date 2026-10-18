@@ -643,7 +643,7 @@ func cmdLogs(args []string) error {
 func cmdUpdate(args []string) error {
 	fmt.Println(`W v0.1 aktualizacja jest ręczna (automatyczny rollback wchodzi w v0.2.0):
   1. sudo entrypoint backup -o entrypoint-przed-aktualizacja.age
-  2. curl -fsSL <adres>/install.sh | sudo ENTRYPOINT_VERSION=<wersja> sh
+  2. curl -fsSL https://raw.githubusercontent.com/k18k/entrypoint/master/scripts/install.sh | sudo ENTRYPOINT_VERSION=<wersja> sh
   3. sudo entrypoint install
   4. sudo entrypoint status`)
 	return exitError{1, ""}

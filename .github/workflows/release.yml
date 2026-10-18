@@ -1,0 +1,87 @@
+name: Release
+
+# Wydanie z tagu v<wersja> (wersja musi zgadzać się z versions.json i install.sh):
+#  1. pliki wydania GitHub: brama (linux_amd64), konektor i frpc dla wszystkich platform, SDK, SHA256SUMS
+#  2. SDK w GitHub Packages (npm.pkg.github.com) jako @k18k/entrypoint
+#  3. SDK do instalacji z gita: npm install github:k18k/entrypoint-ts (repozytorium z gotowym lib/)
+#  4. obraz konektora: ghcr.io/k18k/entrypoint-connector
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.2"
+          cache-dependency-path: |
+            gateway/go.sum
+            e2e/go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@k18k"
+
+      - name: Zgodność wersji
+        id: v
+        run: |
+          version=$(python3 -c 'import json;print(json.load(open("versions.json"))["entrypoint"])')
+          test "${GITHUB_REF_NAME}" = "v${version}" || { echo "tag ${GITHUB_REF_NAME} != v${version}"; exit 1; }
+          grep -q "ENTRYPOINT_VERSION:-${version}}" scripts/install.sh || { echo "install.sh nie wskazuje ${version}"; exit 1; }
+          test "$(node -p 'require("./sdk/node/package.json").version')" = "${version}"
+          test -f "docs/release-notes/v${version}.md"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Pliki wydania
+        run: make release
+
+      - name: Wydanie GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/release-assets/* \
+            --title "Entrypoint ${{ steps.v.outputs.version }}" \
+            --notes-file "docs/release-notes/v${{ steps.v.outputs.version }}.md"
+
+      - name: SDK w GitHub Packages
+        working-directory: sdk/node
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
+        run: npm publish --ignore-scripts
+
+      - name: SDK do instalacji z gita (k18k/entrypoint-ts)
+        env:
+          DEPLOY_KEY: ${{ secrets.ENTRYPOINT_TS_DEPLOY_KEY }}
+          VERSION: ${{ steps.v.outputs.version }}
+        run: scripts/publish-sdk-git.sh
+
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Obraz konektora
+        uses: docker/build-push-action@v7
+        with:
+          context: dist/connector
+          file: docker/connector/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/k18k/entrypoint-connector:${{ steps.v.outputs.version }}
+            ghcr.io/k18k/entrypoint-connector:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.v.outputs.version }}
+            org.opencontainers.image.description=Konektor tunelu Entrypoint (entrypoint-connector + frpc)
+            org.opencontainers.image.licenses=MIT

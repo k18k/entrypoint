@@ -1,22 +1,22 @@
 {
   "TestInstall_FreshAndPortScan": {
-    "seconds": 9.2,
+    "seconds": 9.4,
     "experiment": false
   },
   "TestInstall_ReinstallKeepsState": {
-    "seconds": 12.3,
+    "seconds": 14.2,
     "experiment": false
   },
   "TestInstall_UninstallAndPurge": {
-    "seconds": 10.8,
+    "seconds": 9.6,
     "experiment": false
   },
   "TestOps_BackupRestoreFreshContainer": {
-    "seconds": 19.7,
+    "seconds": 20.9,
     "experiment": false
   },
   "TestOps_DNSCheck": {
-    "seconds": 7.2,
+    "seconds": 6.8,
     "experiment": false
   },
   "TestReplicas_1_10_NoTrafficBeforeHealthy": {
@@ -32,15 +32,15 @@
     "experiment": true
   },
   "TestReplicas_1_2a_UploadDuringDrain": {
-    "seconds": 16.0,
+    "seconds": 17.0,
     "experiment": false
   },
   "TestReplicas_1_2b_RevokeDuringUpload": {
-    "seconds": 19.8,
+    "seconds": 18.5,
     "experiment": false
   },
   "TestReplicas_1_3_StreamsDuringDrain_Adapter": {
-    "seconds": 9.0,
+    "seconds": 9.6,
     "experiment": false
   },
   "TestReplicas_1_3_StreamsDuringDrain_Base": {
@@ -48,23 +48,23 @@
     "experiment": true
   },
   "TestReplicas_1_4_DrainSteps": {
-    "seconds": 17.6,
+    "seconds": 18.7,
     "experiment": false
   },
   "TestReplicas_1_5_UnhealthyReplica": {
-    "seconds": 21.8,
+    "seconds": 23.6,
     "experiment": false
   },
   "TestReplicas_1_6_EntrypointdCrash": {
-    "seconds": 31.6,
+    "seconds": 32.7,
     "experiment": false
   },
   "TestReplicas_1_7_CaddyColdStartWithoutDaemon": {
-    "seconds": 9.0,
+    "seconds": 9.2,
     "experiment": false
   },
   "TestReplicas_1_8_LastReplicaRemoved": {
-    "seconds": 12.9,
+    "seconds": 14.1,
     "experiment": false
   },
   "TestReplicas_1_9_FrpsRestart": {
@@ -92,11 +92,11 @@
     "experiment": true
   },
   "TestRevoke_3_1_KickWithFrpsRestart": {
-    "seconds": 27.1,
+    "seconds": 26.9,
     "experiment": false
   },
   "TestRevoke_3_1_KickWithPing": {
-    "seconds": 34.3,
+    "seconds": 34.9,
     "experiment": false
   },
   "TestRevoke_3_1b_LongDaemonOutage": {
@@ -104,19 +104,19 @@
     "experiment": true
   },
   "TestRevoke_3_2_RevokeDuringFailedApply": {
-    "seconds": 46.8,
+    "seconds": 46.4,
     "experiment": false
   },
   "TestRevoke_3_3_RestoreInvalidatesTokens": {
-    "seconds": 27.9,
+    "seconds": 26.4,
     "experiment": false
   },
   "TestRouting_Conflicts": {
-    "seconds": 11.7,
+    "seconds": 10.4,
     "experiment": false
   },
   "TestRouting_ForwardedHeaders": {
-    "seconds": 8.1,
+    "seconds": 9.3,
     "experiment": false
   },
   "TestRouting_HTTPRedirect": {
@@ -124,11 +124,11 @@
     "experiment": true
   },
   "TestRouting_HostPrefixAndBoundaries": {
-    "seconds": 11.7,
+    "seconds": 10.4,
     "experiment": false
   },
   "TestRouting_LimitsAndTimeouts": {
-    "seconds": 12.1,
+    "seconds": 11.7,
     "experiment": false
   },
   "TestRouting_PathNormalization": {
@@ -136,19 +136,19 @@
     "experiment": true
   },
   "TestRouting_UpstreamWebSocketSSEAndHTTP2": {
-    "seconds": 9.1,
+    "seconds": 8.2,
     "experiment": false
   },
   "TestSDK_CLI": {
-    "seconds": 12.3,
+    "seconds": 11.0,
     "experiment": false
   },
   "TestSDK_DockerSidecar": {
-    "seconds": 14.3,
+    "seconds": 14.2,
     "experiment": false
   },
   "TestSDK_KillParent": {
-    "seconds": 9.5,
+    "seconds": 9.8,
     "experiment": false
   },
   "TestSDK_Matrix": {
@@ -156,19 +156,19 @@
     "experiment": false
   },
   "TestSecrets_FilePermissions": {
-    "seconds": 7.2,
+    "seconds": 7.6,
     "experiment": false
   },
   "TestSecrets_NoSecretsInLogs": {
-    "seconds": 24.3,
+    "seconds": 23.8,
     "experiment": false
   },
   "TestSmoke_Environment": {
-    "seconds": 5.2,
+    "seconds": 5.6,
     "experiment": false
   },
   "TestState_CaddyFailureAfterAuthz": {
-    "seconds": 7.4,
+    "seconds": 8.3,
     "experiment": false
   },
   "TestState_CaddyLoadAtomic": {
@@ -176,15 +176,15 @@
     "experiment": true
   },
   "TestState_DaemonStartsBeforeCaddy": {
-    "seconds": 15.5,
+    "seconds": 14.2,
     "experiment": false
   },
   "TestState_Drift": {
-    "seconds": 9.8,
+    "seconds": 10.8,
     "experiment": false
   },
   "TestState_KillDuringApply": {
-    "seconds": 23.5,
+    "seconds": 17.7,
     "experiment": false
   },
   "TestTLS_CertificateAfterDNSRecord": {
@@ -192,7 +192,7 @@
     "experiment": true
   },
   "TestTLS_ConnectorRejectsForeignCA": {
-    "seconds": 8.1,
+    "seconds": 8.8,
     "experiment": false
   },
   "TestTLS_NoCertificateWithoutRoute": {
@@ -208,27 +208,27 @@
     "experiment": true
   },
   "TestTunnels_2_1_ForeignGroupPortService": {
-    "seconds": 14.9,
+    "seconds": 13.9,
     "experiment": false
   },
   "TestTunnels_2_2_NewProxyWhitelist": {
-    "seconds": 10.8,
+    "seconds": 10.0,
     "experiment": false
   },
   "TestTunnels_2_3_PortsNeverReused": {
-    "seconds": 7.0,
+    "seconds": 7.1,
     "experiment": false
   },
   "TestTunnels_2_4_StatusConsistency": {
-    "seconds": 19.0,
+    "seconds": 19.7,
     "experiment": false
   },
   "TestTunnels_2_5_CARotation": {
-    "seconds": 16.6,
+    "seconds": 16.5,
     "experiment": false
   },
   "TestTunnels_BasicFlow": {
-    "seconds": 10.7,
+    "seconds": 11.0,
     "experiment": false
   }
 }

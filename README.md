@@ -32,38 +32,20 @@ Wersja **0.1**, do własnego użytku i sterowana z CLI. Specyfikacja: [docs/spec
 - publiczny IPv4 i otwarte porty TCP **80**, **443** i **55555** (u dostawcy i w firewallu systemu);
 - domena z możliwością ustawienia rekordów A.
 
-**Maszyna budująca** (do czasu publikacji wydań na GitHubie): Go 1.27, Node.js 22+, Python 3, Docker (do testów e2e).
+**Rozwój i budowanie ze źródeł:** Go 1.27, Node.js 22+, Python 3, Docker (do testów e2e). Paczki: `make dist sdk`, pełne wydanie: `make release`.
 
 **Aplikacje:** Node.js 22+ dla SDK; dowolny język przez CLI konektora.
-
-## Budowanie paczek
-
-```bash
-make dist sdk                      # brama dla linux_amd64, konektor, paczki npm
-make dist sdk PLATFORMS="linux_amd64 linux_arm64 darwin_arm64"   # inne platformy
-```
-
-Wynik:
-
-| Plik | Do czego |
-| --- | --- |
-| `dist/release/entrypoint_0.1.0_linux_amd64.tar.gz` + `.sha256` | Programy bramy: `entrypoint`, `entrypointd`, Caddy, frps |
-| `dist/release/install.sh` | Instalator programów |
-| `dist/npm/k18k-entrypoint-0.1.0.tgz` | SDK Node.js |
-| `dist/npm/k18k-entrypoint-linux-x64-0.1.0.tgz` | Konektor i frpc dla platformy |
 
 ## Instalacja na serwerze
 
 1. Ustaw rekord DNS bramy, np. `A tunnel.example.com -> <IP serwera>`. Nazwa bramy jest stała: klienci tuneli łączą się po nazwie, nie po IP.
-2. Skopiuj paczkę i instalator na serwer, potem zainstaluj programy:
+2. Zainstaluj programy z [wydania na GitHubie](https://github.com/k18k/entrypoint/releases). `install.sh` pobiera paczkę i sprawdza jej SHA256:
 
    ```bash
-   scp dist/release/entrypoint_0.1.0_linux_amd64.tar.gz* dist/release/install.sh serwer:
-   ssh serwer
-   sudo ENTRYPOINT_TARBALL=./entrypoint_0.1.0_linux_amd64.tar.gz sh install.sh
+   curl -fsSL https://raw.githubusercontent.com/k18k/entrypoint/master/scripts/install.sh | sudo sh
    ```
 
-   Po publikacji wydań wystarczy `curl -fsSL <adres>/install.sh | sudo sh`.
+   Inna wersja: `ENTRYPOINT_VERSION=0.1.0`; paczka z dysku: `ENTRYPOINT_TARBALL=./entrypoint_0.1.0_linux_amd64.tar.gz`.
 3. Załóż bramę:
 
    ```bash
@@ -113,11 +95,13 @@ sudo entrypoint token create --service api      # wypisuje ENTRYPOINT_CONNECT ty
 
 `ENTRYPOINT_CONNECT` zawiera nazwę bramy, port, zaufane CA i token. Przechowuj go jak hasło. Każda replika (albo każda maszyna) może mieć osobny token, który odwołasz niezależnie.
 
-W aplikacji zainstaluj SDK z paczek:
+W aplikacji zainstaluj SDK z gita. Przy instalacji SDK pobiera konektor i frpc dla Twojej platformy z wydania i sprawdza ich SHA256:
 
 ```bash
-npm install ./k18k-entrypoint-0.1.0.tgz ./k18k-entrypoint-linux-x64-0.1.0.tgz
+npm install github:k18k/entrypoint-ts#v0.1.0
 ```
+
+SDK jest też w GitHub Packages jako `@k18k/entrypoint` (`@k18k:registry=https://npm.pkg.github.com` w `.npmrc`; GitHub wymaga tokenu `read:packages` także dla pakietów publicznych).
 
 **Adapter `node:http` (zalecany).** Daje pełny drain: `Connection: close`, zamknięcie SSE i WebSocketów kodem 1001. Przyjmuje dowolny handler `(req, res)`, więc działa z czystym `node:http` i z aplikacjami frameworków (aplikacja Express, `app.callback()` w Koa).
 
@@ -151,14 +135,14 @@ ENTRYPOINT_CONNECT=... npx entrypoint-tunnel tunnel --upstream http://127.0.0.1:
 
 Uruchom aplikację na dwóch maszynach z tokenami tego samego serwisu, a brama rozłoży ruch między repliki. Zatrzymanie jednej (SIGTERM, drain) nie przerywa serwisu.
 
-**Aplikacje w Dockerze (zamiast `cloudflared`).** Konektor działa jako osobny kontener obok aplikacji, w kontrakcie bazowym. Obraz buduje `make connector-image` (`docker/connector/Dockerfile`):
+**Aplikacje w Dockerze (zamiast `cloudflared`).** Konektor działa jako osobny kontener obok aplikacji, w kontrakcie bazowym. Obraz `ghcr.io/k18k/entrypoint-connector` (amd64 i arm64) albo lokalnie `make connector-image`:
 
 ```yaml
 services:
   app:
     image: moja-aplikacja
   tunnel:
-    image: entrypoint-connector:0.1.0
+    image: ghcr.io/k18k/entrypoint-connector:0.1.0
     command: ["--upstream", "http://app:3000", "--health", "/health", "--drain-timeout", "20s"]
     environment:
       ENTRYPOINT_CONNECT: ${ENTRYPOINT_CONNECT}   # z pliku .env poza repozytorium
@@ -213,7 +197,7 @@ sudo entrypoint restore entrypoint-backup.age
 
 Restore **unieważnia wszystkie odtworzone tokeny**, bo backup nie zna późniejszych odwołań. Wydaj nowe tokeny i zaktualizuj DNS, jeśli zmienił się adres IP. Klienci nie zmieniają niczego poza tokenem: CA i nazwa bramy zostają.
 
-**Aktualizacja w v0.1 jest ręczna:** backup, `install.sh` z nową wersją, `entrypoint install`.
+**Aktualizacja w v0.1 jest ręczna:** backup, `install.sh` z nową wersją (`ENTRYPOINT_VERSION=...`), `entrypoint install`.
 
 **Rotacja CA tunelu:**
 
@@ -265,5 +249,5 @@ Każda kopia środowiska ma własny projekt compose i podsieci `10.77.N.0/24` i 
 - Limity połączeń na adres IP po stronie publicznej (decyzja przed v0.2.0).
 - Statyczne wydania stron (v0.3), przekierowania TCP/UDP i TURN (v0.4).
 - Certyfikaty wildcard przez DNS-01, OIDC, HA, wbudowany VPN (v1).
-- Publikacja wydań na GitHubie i paczek w npm: na razie paczki buduje `make dist sdk`.
-- Pakiety konektora dla macOS i Windows się budują (`PLATFORMS=...`), ale nie mają testów e2e.
+- Publikacja w rejestrze npmjs.com: SDK jest dostępne z gita i z GitHub Packages.
+- Konektor dla Linux arm64, macOS i Windows jest w wydaniu, ale nie ma testów e2e.

@@ -2,12 +2,21 @@
   "name": "@k18k/entrypoint",
   "version": "0.1.0",
   "description": "SDK Entrypoint: tunel z aplikacji do bramy Entrypoint (kontrakt bazowy i adapter node:http)",
+  "homepage": "https://github.com/k18k/entrypoint",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/k18k/entrypoint.git",
+    "directory": "sdk/node"
+  },
   "bin": {
     "entrypoint-tunnel": "./lib/cli.js"
   },
   "files": [
-    "lib"
+    "lib",
+    "scripts/postinstall.mjs",
+    "connector.json",
+    "README.md"
   ],
   "type": "module",
   "main": "./lib/index.js",
@@ -22,13 +31,17 @@
       "default": "./lib/http.js"
     }
   },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "scripts": {
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint -c oxlint.config.ts",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
-    "check": "npm run typecheck && npm run lint && npm run fmt:check"
+    "check": "npm run typecheck && npm run lint && npm run fmt:check",
+    "postinstall": "node scripts/postinstall.mjs"
   },
   "devDependencies": {
     "@types/node": "26.6.5",
@@ -36,13 +49,6 @@
     "oxlint": "1.88.0",
     "tsdown": "0.23.1",
     "typescript": "7.0.2"
-  },
-  "optionalDependencies": {
-    "@k18k/entrypoint-darwin-arm64": "0.1.0",
-    "@k18k/entrypoint-darwin-x64": "0.1.0",
-    "@k18k/entrypoint-linux-arm64": "0.1.0",
-    "@k18k/entrypoint-linux-x64": "0.1.0",
-    "@k18k/entrypoint-win32-x64": "0.1.0"
   },
   "engines": {
     "node": ">=22"

@@ -5,5 +5,5 @@ export default defineConfig({
   semi: true,
   singleQuote: false,
   trailingComma: "all",
-  ignorePatterns: ["lib/**", "package-lock.json"],
+  ignorePatterns: ["lib/**", "package-lock.json", "connector.json"],
 });

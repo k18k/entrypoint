@@ -2,6 +2,7 @@
 #
 #   make dist            paczka wydania bramy (dist/release/) i konektor
 #   make sdk             paczki npm SDK (dist/npm/)
+#   make release         pliki wydania GitHub (dist/release-assets/)
 #   make test            testy jednostkowe
 #   make e2e             testy e2e naszego kodu w Dockerze (SHARDS=4 równoległe kopie)
 #   make e2e-experiments eksperymenty: zachowanie Caddy i frp (po zmianie versions.json)
@@ -20,7 +21,7 @@ RUN ?=
 SHARDS ?= 4
 KEEP ?=
 
-.PHONY: all build deps dist sdk connector-image test e2e e2e-experiments e2e-up e2e-down e2e-build e2e-shell clean
+.PHONY: all build deps dist sdk release connector-image test e2e e2e-experiments e2e-up e2e-down e2e-build e2e-shell clean
 
 all: dist sdk
 
@@ -55,7 +56,8 @@ dist: deps build
 
 # Pakiety npm: SDK i pakiety platform z konektorem i frpc.
 sdk: dist
-	cd sdk/node && npm install --no-audit --no-fund && npm run check && npm run build
+	python3 scripts/release-assets.py manifest
+	cd sdk/node && ENTRYPOINT_SKIP_CONNECTOR_DOWNLOAD=1 npm install --no-audit --no-fund && npm run check && npm run build
 	mkdir -p dist/npm
 	cd sdk/node && npm pack --pack-destination ../../dist/npm >/dev/null
 	@for p in $(PLATFORMS); do \
@@ -67,9 +69,15 @@ sdk: dist
 	done
 	@ls dist/npm
 
+# Wszystkie pliki wydania (brama linux_amd64, konektor i frpc dla wszystkich platform, SDK).
+RELEASE_PLATFORMS := linux_amd64 linux_arm64 darwin_amd64 darwin_arm64 windows_amd64
+release:
+	$(MAKE) dist sdk PLATFORMS="$(RELEASE_PLATFORMS)"
+	python3 scripts/release-assets.py assets
+
 # Obraz konektora dla aplikacji w Dockerze.
 connector-image: dist
-	docker build -t entrypoint-connector:$(VERSION) -f docker/connector/Dockerfile dist/connector/linux_amd64
+	docker build -t entrypoint-connector:$(VERSION) -f docker/connector/Dockerfile dist/connector
 
 test:
 	cd gateway && go vet ./... && go test ./...
@@ -86,7 +94,7 @@ e2e-build: dist sdk e2e/.run
 	docker build -q -t ep-e2e-client-node22 --build-arg NODE_IMAGE=node:22-trixie-slim -f e2e/images/client/Dockerfile . >/dev/null
 	docker build -q -t ep-e2e-upstream -f e2e/images/upstream/Dockerfile . >/dev/null
 	docker build -q -t ep-e2e-chaos e2e/images/chaos >/dev/null
-	docker build -q -t ep-e2e-connector -f docker/connector/Dockerfile dist/connector/linux_amd64 >/dev/null
+	docker build -q -t ep-e2e-connector -f docker/connector/Dockerfile dist/connector >/dev/null
 	docker build -q -t ep-e2e-runner e2e/images/runner >/dev/null
 
 # Testy naszego kodu (przed commitem), w SHARDS równoległych kopiach środowiska.

@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      experiments:
+        description: "Uruchom także eksperymenty (zachowanie Caddy i frp)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: Testy jednostkowe i SDK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.2"
+          cache-dependency-path: |
+            gateway/go.sum
+            e2e/go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: gofmt
+        run: test -z "$(gofmt -l gateway e2e)" || { gofmt -l gateway e2e; exit 1; }
+      - name: go vet i testy
+        run: make test
+      - name: SDK (typecheck, oxlint, oxfmt, build)
+        working-directory: sdk/node
+        env:
+          ENTRYPOINT_SKIP_CONNECTOR_DOWNLOAD: "1"
+        run: |
+          npm ci --no-audit --no-fund
+          npm run check
+          npm run build
+
+  e2e:
+    name: Testy e2e (Docker)
+    needs: unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.2"
+          cache-dependency-path: |
+            gateway/go.sum
+            e2e/go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: make e2e
+        run: make e2e SHARDS=3
+      - name: make e2e-experiments
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.experiments }}
+        run: make e2e-experiments SHARDS=3
+      - name: Artefakty testów
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-artifacts
+          path: e2e/artifacts/
+          retention-days: 7
