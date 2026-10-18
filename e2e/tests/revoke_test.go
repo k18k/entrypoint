@@ -29,8 +29,10 @@ func revokeSetup(t *testing.T, heartbeat int) (*h.Env, string, string, *h.App) {
 	return e, idA, ba.TokenID(), appB
 }
 
+// proxyOnline: niedostępne API frps (restart) oznacza, że proxy nie jest online.
 func proxyOnline(e *h.Env, name string) bool {
-	return e.FrpsProxies(h.Gateway)[name] == "online"
+	m, err := e.TryFrpsProxies(h.Gateway)
+	return err == nil && m[name] == "online"
 }
 
 func testRevokeSession(t *testing.T, heartbeat int, now bool) {
