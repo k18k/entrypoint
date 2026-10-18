@@ -49,11 +49,12 @@ Caddy i frps startują z ostatniej w pełni zastosowanej konfiguracji zapisanej 
 | Gdy nie działa | Ruch publiczny | Istniejące tunele | Nowe logowania tuneli | Zmiany konfiguracji |
 | --- | --- | --- | --- | --- |
 | panel | działa | działają | działają | przez CLI |
-| entrypointd | działa | działają | odrzucane do restartu | niemożliwe |
+| entrypointd (awaria procesu, restart przez systemd) | działa | działają | czekają na restart demona | niemożliwe |
+| entrypointd i jego gniazdo zatrzymane | działa poza tunelami | zerwane przy najbliższym heartbeat (do 10 s) | odrzucane | niemożliwe |
 | frps | działa poza tunelami | zerwane | po restarcie frps | możliwe |
 | caddy | nie działa | bez ruchu | działają | możliwe |
 
-Tabela zakłada plugin obsługujący tylko Login i NewProxy. Jeśli do zrywania sesji zostanie wybrane odrzucanie Ping, aktywne sesje zależą od entrypointd i wiersz entrypointd trzeba zmienić po teście 3.1b.
+Po teście 3.1 plugin obsługuje Login, NewProxy i Ping (odrzucanie Ping zrywa sesje odwołanych tokenów). Gniazdo pluginu trzyma systemd (`entrypointd.socket`), więc przy awarii i restarcie demona zapytania frps czekają w kolejce, a sesje trwają. Aktywne sesje zależą od entrypointd dopiero przy jego pełnej niedostępności, łącznie z gniazdem. Wiersze entrypointd zaktualizowane po teście 3.1b; pomiary w `docs/wyniki.md`.
 
 **Wariant porównawczy (SRV).** Dynamiczne upstreamy Caddy z lokalnego serwera DNS prowadzonego przez entrypointd. Rozwijany tylko wtedy, gdy wariant B nie przejdzie eksperymentu 1. Ma znane wady: zależność nowych żądań od demona, brak aktywnych health checków Caddy przy dynamicznych upstreamach i brak potwierdzenia wycofania repliki.
 

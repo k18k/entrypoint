@@ -51,7 +51,7 @@ fi
 
 mkdir -p "$TMP/x"
 tar -xzf "$TARBALL" -C "$TMP/x"
-[ -x "$TMP/x/$NAME/bin/entrypoint" ] || die "paczka nie zawiera bin/entrypoint"
+[ -f "$TMP/x/$NAME/bin/entrypoint" ] || die "paczka nie zawiera bin/entrypoint"
 got_version="$(cat "$TMP/x/$NAME/VERSION")"
 [ "$got_version" = "$VERSION" ] || die "paczka zawiera wersję $got_version, oczekiwano $VERSION"
 

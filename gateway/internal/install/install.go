@@ -173,8 +173,8 @@ func Install(o Options) error {
 		{filepath.Join(dd, "state"), config.UserDaemon, config.UserDaemon, 0o700},
 		{filepath.Join(dd, "secrets"), "", config.UserDaemon, 0o750},
 		// setgid: nowe pliki dziedziczą grupę procesu, który je czyta.
-		{cfg.TunnelDir(), config.UserDaemon, config.UserFrps, 0o2750},
-		{cfg.CaddyDir(), config.UserDaemon, config.UserCaddy, 0o2750},
+		{cfg.TunnelDir(), config.UserDaemon, config.UserFrps, os.ModeSetgid | 0o750},
+		{cfg.CaddyDir(), config.UserDaemon, config.UserCaddy, os.ModeSetgid | 0o750},
 		{cfg.CaddyStorage(), config.UserCaddy, config.UserCaddy, 0o700},
 		{filepath.Join(cfg.CaddyDir(), "home"), config.UserCaddy, config.UserCaddy, 0o700},
 		{filepath.Join(dd, "frps"), "", config.UserFrps, 0o750},
@@ -273,11 +273,12 @@ func Install(o Options) error {
 	if o.NoStart {
 		return nil
 	}
-	if err := run("systemctl", "enable", "entrypoint.target", "entrypointd.service", "entrypoint-caddy.service", "entrypoint-frps.service", "entrypoint-frps-reload.path"); err != nil {
+	if err := run("systemctl", "enable", "entrypoint.target", "entrypointd.socket", "entrypointd.service", "entrypoint-caddy.service", "entrypoint-frps.service", "entrypoint-frps-reload.path"); err != nil {
 		return err
 	}
 	// Restart podnosi nowe programy po ponownej instalacji; przy pierwszej po prostu startuje.
-	if err := run("systemctl", "restart", "entrypoint.target", "entrypointd.service", "entrypoint-caddy.service", "entrypoint-frps.service", "entrypoint-frps-reload.path"); err != nil {
+	_ = run("systemctl", "stop", "entrypointd.service", "entrypointd.socket")
+	if err := run("systemctl", "restart", "entrypoint.target", "entrypointd.socket", "entrypointd.service", "entrypoint-caddy.service", "entrypoint-frps.service", "entrypoint-frps-reload.path"); err != nil {
 		return err
 	}
 	return waitHealthy(cfg, 60*time.Second)

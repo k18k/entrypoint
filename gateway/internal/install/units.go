@@ -14,6 +14,7 @@ const unitDir = "/etc/systemd/system"
 // UnitNames to wszystkie jednostki instalacji.
 var UnitNames = []string{
 	"entrypoint.target",
+	"entrypointd.socket",
 	"entrypointd.service",
 	"entrypoint-caddy.service",
 	"entrypoint-frps.service",
@@ -39,15 +40,28 @@ UMask=0027`
 	return map[string]string{
 		"entrypoint.target": `[Unit]
 Description=Entrypoint: brama publikowania usług
-Wants=entrypointd.service entrypoint-caddy.service entrypoint-frps.service entrypoint-frps-reload.path
+Wants=entrypointd.socket entrypointd.service entrypoint-caddy.service entrypoint-frps.service entrypoint-frps-reload.path
 
 [Install]
 WantedBy=multi-user.target
 `,
+		"entrypointd.socket": fmt.Sprintf(`[Unit]
+Description=Entrypoint: gniazdo pluginu frps i zgody TLS (entrypointd)
+PartOf=entrypoint.target
+
+[Socket]
+ListenStream=%s
+Backlog=4096
+NoDelay=yes
+
+[Install]
+WantedBy=entrypoint.target sockets.target
+`, cfg.PluginListen),
 		"entrypointd.service": fmt.Sprintf(`[Unit]
 Description=Entrypoint: warstwa sterowania (entrypointd)
 PartOf=entrypoint.target
-After=network-online.target
+Requires=entrypointd.socket
+After=network-online.target entrypointd.socket
 Wants=network-online.target
 
 [Service]

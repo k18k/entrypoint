@@ -32,6 +32,7 @@ type AppOptions struct {
 	CtlPort   int
 	Health    string
 	Wait      bool // czekaj na zdrową rejestrację
+	Unhealthy bool // start z niezdanym health checkiem
 }
 
 // StartApp uruchamia aplikację; pakiet połączenia trafia do pliku 0600, nie do argumentów.
@@ -55,7 +56,11 @@ func (e *Env) StartApp(o AppOptions) *App {
 	a := &App{e: e, Container: o.Container, CtlPort: o.CtlPort, Replica: o.Replica, Log: fmt.Sprintf("/tmp/app-%s.log", o.Replica)}
 	secret := fmt.Sprintf("/run/ep/%s.connect", o.Replica)
 	e.WriteFile(o.Container, secret, o.Connect, "600")
-	script := fmt.Sprintf(`cd /app && ENTRYPOINT_CONNECT="$(cat %s)" MODE=%s SERVICE=%s REPLICA=%s DRAIN_MS=%d CTL_PORT=%d HEALTH=%s ENTRYPOINT_CONNECTOR=/app/node_modules/@k18k/entrypoint-linux-x64/bin/entrypoint-connector nohup node server.js > %s 2>&1 & echo $! > /tmp/app-%s.pid`,
+	unhealthy := ""
+	if o.Unhealthy {
+		unhealthy = "START_UNHEALTHY=1 "
+	}
+	script := fmt.Sprintf(`cd /app && `+unhealthy+`ENTRYPOINT_CONNECT="$(cat %s)" MODE=%s SERVICE=%s REPLICA=%s DRAIN_MS=%d CTL_PORT=%d HEALTH=%s ENTRYPOINT_CONNECTOR=/app/node_modules/@k18k/entrypoint-linux-x64/bin/entrypoint-connector nohup node server.js > %s 2>&1 & echo $! > /tmp/app-%s.pid`,
 		secret, o.Mode, o.Service, o.Replica, o.DrainMs, o.CtlPort, o.Health, a.Log, o.Replica)
 	e.MustSh(o.Container, script)
 	if o.Wait {
@@ -198,7 +203,11 @@ func (e *Env) StopAllApps() {
 
 // Procs zwraca liczbę procesów pasujących do wzorca w kontenerze.
 func (e *Env) Procs(container, pattern string) int {
-	out, _ := e.Sh(container, fmt.Sprintf("pgrep -f -c %q || true", pattern))
+	// pgrep -x po nazwie procesu (comm, maks. 15 znaków), żeby nie liczyć własnej powłoki.
+	if len(pattern) > 15 {
+		pattern = pattern[:15]
+	}
+	out, _ := e.Sh(container, fmt.Sprintf("pgrep -c -x %q || true", pattern))
 	n := 0
 	fmt.Sscanf(strings.TrimSpace(out), "%d", &n)
 	return n

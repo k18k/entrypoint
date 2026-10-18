@@ -20,7 +20,7 @@ const stats = {
   uploadsOK: 0, uploadsAborted: 0, lastRequestAt: null, requestsAfterDrain: 0,
   drainStartedAt: null, wsCloseCodes: [], events: [],
 };
-let healthy = true;
+let healthy = process.env.START_UNHEALTHY !== "1";
 let drainingFlag = false;
 
 const app = express();
@@ -33,6 +33,8 @@ app.use((req, res, next) => {
   next();
 });
 app.get(HEALTH, (req, res) => (healthy ? res.send("ok") : res.status(500).send("chory")));
+// Chora replika zwraca błędy dla wszystkich żądań (test 1.5).
+app.use((req, res, next) => (healthy ? next() : res.status(500).json({ replica: REPLICA, error: "chora" })));
 app.get("/whoami", (req, res) => res.json({ replica: REPLICA, pid: process.pid, headers: req.headers }));
 app.get("/slow", (req, res) => setTimeout(() => res.send(`ok ${REPLICA}`), Number(req.query.ms ?? 1000)));
 app.post("/upload", (req, res) => {

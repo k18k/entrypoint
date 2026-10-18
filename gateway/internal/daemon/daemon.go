@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -68,7 +69,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if err := d.loadSnapshotFromDisk(ctx); err != nil {
 		d.log.Warn("brak snapshotu autoryzacji na dysku", "err", err)
 	}
-	pluginLn, err := net.Listen("tcp", d.cfg.PluginListen)
+	pluginLn, err := pluginListener(d.cfg.PluginListen)
 	if err != nil {
 		return fmt.Errorf("plugin frps: %w", err)
 	}
@@ -98,6 +99,24 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.log.Info("entrypointd działa", "plugin", d.cfg.PluginListen, "api", d.cfg.APISocket)
 	<-ctx.Done()
 	return nil
+}
+
+// pluginListener bierze gniazdo od systemd (entrypointd.socket), jeśli zostało przekazane.
+// systemd trzyma je także wtedy, gdy demon nie działa: zapytania frps czekają w kolejce
+// zamiast kończyć się błędem, więc restart demona nie zrywa sesji tuneli.
+func pluginListener(addr string) (net.Listener, error) {
+	if os.Getenv("LISTEN_PID") == strconv.Itoa(os.Getpid()) && os.Getenv("LISTEN_FDS") != "" {
+		n, _ := strconv.Atoi(os.Getenv("LISTEN_FDS"))
+		if n >= 1 {
+			f := os.NewFile(3, "entrypointd.socket")
+			ln, err := net.FileListener(f)
+			f.Close()
+			if err == nil {
+				return ln, nil
+			}
+		}
+	}
+	return net.Listen("tcp", addr)
 }
 
 func (d *Daemon) loadSnapshotFromDisk(ctx context.Context) error {

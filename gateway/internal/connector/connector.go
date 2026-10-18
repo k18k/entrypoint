@@ -9,6 +9,8 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -79,10 +81,12 @@ type Connector struct {
 	cmd  *exec.Cmd
 	done chan struct{} // zamykany po zakończeniu bieżącego frpc
 
-	state     string // ostatni stan proxy
-	connected bool
-	fatal     chan Event
-	draining  bool
+	state      string // ostatni stan proxy
+	connected  bool
+	restartNow bool // zamierzony restart frpc, bez backoffu
+	lastProbe  time.Time
+	fatal      chan Event
+	draining   bool
 }
 
 var replicaRe = regexp.MustCompile(`[^a-z0-9-]+`)
@@ -455,6 +459,15 @@ func (c *Connector) pollStatus(ctx context.Context) {
 			c.emit(Event{Event: "healthy"})
 		case "check failed":
 			c.emit(Event{Event: "unhealthy", Reason: "health check nie przechodzi"})
+			// frpc wycofał proxy z grupy, ale połączenia keep-alive Caddy przypięte do tej
+			// repliki nadal by do niej trafiały. Restart frpc je zrywa; replika wraca do grupy
+			// dopiero po udanym health checku.
+			c.logf("health check nie przechodzi: restartuję frpc, żeby zerwać istniejące połączenia")
+			c.mu.Lock()
+			c.restartNow = true
+			c.mu.Unlock()
+			c.killFrpc()
+			last = ""
 		case "start error":
 			c.emit(Event{Event: "rejected", Reason: perr})
 			if strings.Contains(perr, "ep:revoked") {
@@ -486,6 +499,13 @@ func (c *Connector) supervise(ctx context.Context) {
 		c.connected = false
 		if time.Since(start) > time.Minute {
 			backoff = time.Second
+		}
+		c.mu.Lock()
+		now := c.restartNow
+		c.restartNow = false
+		c.mu.Unlock()
+		if now {
+			continue
 		}
 		c.logf("frpc zakończony (%v); ponowny start za %s", err, backoff)
 		select {
@@ -556,14 +576,54 @@ func (c *Connector) handleLine(line string) {
 		if authFailures >= 3 {
 			c.fatalOnce(Event{Event: "auth_failed", Reason: "brama nie zna tego tokenu"})
 		}
-	case strings.Contains(line, "certificate") && (strings.Contains(line, "x509") || strings.Contains(line, "tls")):
-		c.emit(Event{Event: "tls_error", Reason: "certyfikat bramy nie jest podpisany przez zaufane CA z pakietu połączenia"})
-	case strings.Contains(line, "try to reconnect"), strings.Contains(line, "control writer is closing"), strings.Contains(line, "pong message contains error"):
+	case strings.Contains(line, "connect to server error"):
+		go c.probeTLS()
+	case strings.Contains(line, "try to connect to server"), strings.Contains(line, "try to reconnect"),
+		strings.Contains(line, "control writer is closing"), strings.Contains(line, "pong message contains error"):
 		if c.connected {
 			c.connected = false
 			c.emit(Event{Event: "disconnected", Reason: "sesja z bramą zerwana"})
 		}
 	}
+}
+
+// probeTLS sprawdza certyfikat bramy tymi samymi CA co frpc, żeby podać czytelną przyczynę
+// błędu połączenia (frpc przy multipleksowaniu zgłasza tylko „session shutdown”).
+func (c *Connector) probeTLS() {
+	c.mu.Lock()
+	if time.Since(c.lastProbe) < 3*time.Second {
+		c.mu.Unlock()
+		return
+	}
+	c.lastProbe = time.Now()
+	c.mu.Unlock()
+	if c.o.InsecureDev {
+		return
+	}
+	pool := x509.NewCertPool()
+	for _, ca := range c.o.Bundle.CAs {
+		pool.AppendCertsFromPEM([]byte(ca))
+	}
+	d := &net.Dialer{Timeout: 5 * time.Second}
+	conn, err := tls.DialWithDialer(d, "tcp", net.JoinHostPort(c.o.Bundle.Server, strconv.Itoa(c.o.Bundle.Port)),
+		&tls.Config{RootCAs: pool, ServerName: c.o.Bundle.Server, MinVersion: tls.VersionTLS12})
+	if err != nil {
+		var uae x509.UnknownAuthorityError
+		var hne x509.HostnameError
+		var cie x509.CertificateInvalidError
+		switch {
+		case errors.As(err, &uae):
+			c.emit(Event{Event: "tls_error", Reason: "certyfikat bramy nie jest podpisany przez żadne CA z pakietu połączenia (rotacja CA? wydaj nowy token)"})
+		case errors.As(err, &hne):
+			c.emit(Event{Event: "tls_error", Reason: "certyfikat bramy nie pasuje do nazwy " + c.o.Bundle.Server})
+		case errors.As(err, &cie):
+			c.emit(Event{Event: "tls_error", Reason: "certyfikat bramy jest nieważny: " + cie.Error()})
+		default:
+			c.emit(Event{Event: "connect_failed", Reason: err.Error()})
+		}
+		return
+	}
+	conn.Close()
 }
 
 func (c *Connector) killFrpc() {
