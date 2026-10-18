@@ -195,6 +195,11 @@ func (d *Daemon) recover(ctx context.Context) {
 func (d *Daemon) recoverOnce(ctx context.Context) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	// Caddy może startować wolniej niż demon. Bez działającego admin API każda próba
+	// stosowania zakończyłaby się wycofaniem, więc czekamy (pętla recover ponawia).
+	if _, err := d.caddy.Config(ctx); err != nil {
+		return fmt.Errorf("Caddy jeszcze niedostępny: %w", err)
+	}
 	revs, err := d.st.Revisions(ctx, 1)
 	if err != nil {
 		return err
@@ -224,7 +229,15 @@ func (d *Daemon) recoverOnce(ctx context.Context) error {
 		return err
 	}
 	if last == nil {
-		return errors.New("brak zastosowanej rewizji")
+		// Żadna rewizja nie została zastosowana (np. pierwszy start przerwany błędem):
+		// nowa rewizja z bieżącą konfiguracją.
+		rev, err := d.st.Create(ctx, -1, "system", func(_ *store.Tx, _ *spec.Spec) (string, error) {
+			return "ponowne zastosowanie konfiguracji po nieudanym starcie", nil
+		}, nil)
+		if err != nil {
+			return err
+		}
+		return d.apply(ctx, rev)
 	}
 	return d.applyComponents(ctx, last)
 }

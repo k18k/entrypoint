@@ -185,3 +185,38 @@ func TestState_Drift(t *testing.T) {
 		t.Fatal("brak wpisu o dryfie")
 	}
 }
+
+// entrypointd startuje przed Caddy (pierwszy start na wolnej maszynie): rewizja początkowa
+// czeka na Caddy zamiast kończyć się błędem.
+func TestState_DaemonStartsBeforeCaddy(t *testing.T) {
+	e := h.New(t)
+	e.SetDNS(map[string]string{"s.ep.test": h.GatewayIP})
+	e.ResetGateway(h.Gateway)
+	e.InstallPrograms(h.Gateway)
+	e.MustExec(h.Gateway, "entrypoint", "install", "--gateway-name", h.TunnelName, "--acme-ca", "https://pebble:14000/dir",
+		"--acme-staging-ca", "https://pebble:14000/dir", "--acme-ca-root", "/pebble/pebble.minica.pem", "--public-ip", h.GatewayIP, "--no-start")
+	e.MustExec(h.Gateway, "systemctl", "start", "entrypointd.socket", "entrypointd.service")
+	time.Sleep(5 * time.Second)
+	e.MustExec(h.Gateway, "systemctl", "start", "entrypoint-caddy", "entrypoint-frps")
+	var revs []revision
+	e.Eventually(30*time.Second, 500*time.Millisecond, "rewizja początkowa zastosowana", func() error {
+		r, err := tryRevisions(e)
+		if err != nil {
+			return err
+		}
+		revs = r
+		if r[0].Status != "applied" {
+			return fmt.Errorf("status %s", r[0].Status)
+		}
+		return nil
+	})
+	e.Route("s.ep.test", "--to", h.UpstreamVPN)
+	e.WaitHTTPS("https://s.ep.test/", 200)
+	st := e.Status()
+	result(t, "demon 5 s przed Caddy: rewizje %v; ostrzeżenia %v", revs, st.Status.Warnings)
+	for _, r := range revs {
+		if r.Status == "failed" {
+			t.Fatal("rewizja początkowa zakończona błędem")
+		}
+	}
+}
