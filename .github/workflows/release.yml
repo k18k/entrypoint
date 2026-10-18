@@ -84,4 +84,4 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.version=${{ steps.v.outputs.version }}
             org.opencontainers.image.description=Konektor tunelu Entrypoint (entrypoint-connector + frpc)
-            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.licenses=Apache-2.0

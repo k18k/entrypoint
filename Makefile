@@ -64,7 +64,7 @@ sdk: dist
 	  np=$$(case $$p in linux_amd64) echo linux-x64;; linux_arm64) echo linux-arm64;; darwin_amd64) echo darwin-x64;; darwin_arm64) echo darwin-arm64;; windows_amd64) echo win32-x64;; esac); \
 	  os=$${np%-*}; cpu=$${np#*-}; d=dist/npm-src/$$np; rm -rf $$d; mkdir -p $$d/bin; \
 	  cp dist/connector/$$p/* $$d/bin/; \
-	  printf '{\n  "name": "@k18k/entrypoint-%s",\n  "version": "%s",\n  "description": "Konektor Entrypoint i frpc dla %s",\n  "license": "MIT",\n  "os": ["%s"],\n  "cpu": ["%s"],\n  "files": ["bin"]\n}\n' $$np $(VERSION) $$np $$os $$cpu > $$d/package.json; \
+	  printf '{\n  "name": "@k18k/entrypoint-%s",\n  "version": "%s",\n  "description": "Konektor Entrypoint i frpc dla %s",\n  "license": "Apache-2.0",\n  "os": ["%s"],\n  "cpu": ["%s"],\n  "files": ["bin"]\n}\n' $$np $(VERSION) $$np $$os $$cpu > $$d/package.json; \
 	  (cd $$d && npm pack --pack-destination ../../npm >/dev/null); \
 	done
 	@ls dist/npm

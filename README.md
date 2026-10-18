@@ -251,3 +251,7 @@ Każda kopia środowiska ma własny projekt compose i podsieci `10.77.N.0/24` i 
 - Certyfikaty wildcard przez DNS-01, OIDC, HA, wbudowany VPN (v1).
 - Publikacja w rejestrze npmjs.com: SDK jest dostępne z gita i z GitHub Packages.
 - Konektor dla Linux arm64, macOS i Windows jest w wydaniu, ale nie ma testów e2e.
+
+## Licencja
+
+[Apache-2.0](LICENSE). Caddy i frp, używane jako oficjalne binarki, mają własne licencje (obie Apache-2.0).
