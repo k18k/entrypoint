@@ -75,6 +75,7 @@ RuntimeDirectory=entrypoint
 RuntimeDirectoryMode=0750
 ReadWritePaths=%[6]s
 %[7]s
+UMask=0077
 
 [Install]
 WantedBy=entrypoint.target

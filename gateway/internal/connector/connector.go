@@ -182,6 +182,11 @@ func (c *Connector) emit(e Event) {
 		e.Replica = c.proxyName
 	}
 	e.Reason = redact.String(e.Reason)
+	switch e.Event {
+	case "tls_error", "connect_failed", "revoked", "auth_failed", "rejected":
+		// Przyczyny błędów połączenia są widoczne także w logu aplikacji, zanim SDK zgłosi gotowość.
+		fmt.Fprintf(c.o.Log, "entrypoint-connector: %s: %s\n", e.Event, e.Reason)
+	}
 	b, _ := json.Marshal(e)
 	c.o.Events.Write(append(b, '\n'))
 }

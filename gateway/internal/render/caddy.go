@@ -78,6 +78,9 @@ func routeHandlers(r spec.Route, s *spec.Spec) []any {
 		},
 		// Przeładowanie konfiguracji nie zrywa WebSocketów od razu.
 		"stream_close_delay": "1h",
+		// Przed Caddy nie stoi zaufane proxy: nagłówki adresu klienta od klienta są usuwane.
+		// X-Forwarded-For/Proto/Host Caddy ustawia sam.
+		"headers": obj{"request": obj{"delete": []string{"X-Real-IP", "Forwarded", "X-Client-IP", "True-Client-IP", "CF-Connecting-IP"}}},
 	}
 	return append(hs, rp)
 }

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -90,6 +91,9 @@ func Open(path string) (*Store, error) {
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("schemat bazy: %w", err)
+	}
+	for _, f := range []string{path, path + "-wal", path + "-shm"} {
+		_ = os.Chmod(f, 0o600)
 	}
 	return &Store{db: db}, nil
 }
