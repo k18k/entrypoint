@@ -1,12 +1,12 @@
 // Aplikacja testowa e2e na natywnym node:http, wystawiona przez Entrypoint.
-// MODE=adapter — adapter connectTo(handler) z @k18k/entrypoint/http
+// MODE=adapter — adapter expose(handler) z @k18k/entrypoint/http
 // MODE=base    — kontrakt bazowy: server.listen + tunnel()
 // Panel sterowania testów słucha na 0.0.0.0:CTL_PORT (poza tunelem).
 import crypto from "node:crypto";
 import http from "node:http";
 import { WebSocketServer } from "ws";
 import { tunnel } from "@k18k/entrypoint";
-import { connectTo } from "@k18k/entrypoint/http";
+import { connectTo, expose } from "@k18k/entrypoint/http";
 
 const MODE = process.env.MODE ?? "adapter";
 const REPLICA = process.env.REPLICA ?? "r1";
@@ -82,7 +82,8 @@ let appServer;
 async function start() {
   if (MODE === "adapter") {
     let wss;
-    conn = await connectTo(handler, {
+    // CONNECT_TO=1: przestarzały alias connectTo (zgodność z 0.1.0).
+    conn = await (process.env.CONNECT_TO === "1" ? connectTo : expose)(handler, {
       service: SERVICE, healthCheck: HEALTH, replica: REPLICA, drainTimeoutMs: DRAIN_MS,
       healthIntervalSec: 1, healthMaxFailed: 2,
       get websockets() { return wss ? [wss] : []; },

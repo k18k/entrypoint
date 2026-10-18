@@ -98,7 +98,7 @@ sudo entrypoint token create --service api      # wypisuje ENTRYPOINT_CONNECT ty
 W aplikacji zainstaluj SDK z gita. Przy instalacji SDK pobiera konektor i frpc dla Twojej platformy z wydania i sprawdza ich SHA256:
 
 ```bash
-npm install github:k18k/entrypoint-ts#v0.1.0
+npm install github:k18k/entrypoint-ts#v0.1.1
 ```
 
 SDK jest też w GitHub Packages jako `@k18k/entrypoint` (`@k18k:registry=https://npm.pkg.github.com` w `.npmrc`; GitHub wymaga tokenu `read:packages` także dla pakietów publicznych).
@@ -106,7 +106,7 @@ SDK jest też w GitHub Packages jako `@k18k/entrypoint` (`@k18k:registry=https:/
 **Adapter `node:http` (zalecany).** Daje pełny drain: `Connection: close`, zamknięcie SSE i WebSocketów kodem 1001. Przyjmuje dowolny handler `(req, res)`, więc działa z czystym `node:http` i z aplikacjami frameworków (aplikacja Express, `app.callback()` w Koa).
 
 ```js
-import { connectTo } from "@k18k/entrypoint/http";
+import { expose } from "@k18k/entrypoint/http";
 
 const handler = (req, res) => {
   if (req.url === "/health") return res.end("ok");
@@ -114,7 +114,7 @@ const handler = (req, res) => {
 };
 
 // Serwer na 127.0.0.1:0 i tunel; SIGTERM uruchamia drain i kończy proces.
-const conn = await connectTo(handler, { service: "api", healthCheck: "/health" });
+const conn = await expose(handler, { service: "api", healthCheck: "/health" });
 // WebSockety: new WebSocketServer({ server: conn.server }); przekaż je w opcji websockets.
 ```
 
@@ -142,7 +142,7 @@ services:
   app:
     image: moja-aplikacja
   tunnel:
-    image: ghcr.io/k18k/entrypoint-connector:0.1.0
+    image: ghcr.io/k18k/entrypoint-connector:0.1.1
     command: ["--upstream", "http://app:3000", "--health", "/health", "--drain-timeout", "20s"]
     environment:
       ENTRYPOINT_CONNECT: ${ENTRYPOINT_CONNECT}   # z pliku .env poza repozytorium

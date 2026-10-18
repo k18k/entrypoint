@@ -1,7 +1,7 @@
 # Obraz konektora tunelu (zamiast cloudflared): kontener obok aplikacji.
 # Kontekst: dist/connector/ (podkatalogi <os>_<arch> z entrypoint-connector i frpc).
 #   make connector-image
-#   docker run -e ENTRYPOINT_CONNECT=... ghcr.io/k18k/entrypoint-connector:0.1.0 --upstream http://app:3000
+#   docker run -e ENTRYPOINT_CONNECT=... ghcr.io/k18k/entrypoint-connector:0.1.1 --upstream http://app:3000
 FROM debian:trixie-slim
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64

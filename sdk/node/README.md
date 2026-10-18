@@ -7,7 +7,7 @@ SDK Node.js dla [Entrypoint](https://github.com/k18k/entrypoint): wystawia lokal
 Z gita (bez rejestru):
 
 ```bash
-npm install github:k18k/entrypoint-ts#v0.1.0
+npm install github:k18k/entrypoint-ts#v0.1.1
 ```
 
 Z GitHub Packages:
@@ -28,9 +28,9 @@ Pakiet połączenia `ENTRYPOINT_CONNECT` wydaje brama: `sudo entrypoint token cr
 Adapter `node:http`: pełny drain (Connection: close, zamknięcie SSE i WebSocketów kodem 1001). Działa z każdym handlerem `(req, res)`, także z aplikacją Express.
 
 ```js
-import { connectTo } from "@k18k/entrypoint/http";
+import { expose } from "@k18k/entrypoint/http";
 
-const conn = await connectTo((req, res) => res.end("ok"), {
+const conn = await expose((req, res) => res.end("ok"), {
   service: "api",
   healthCheck: "/health",
 });

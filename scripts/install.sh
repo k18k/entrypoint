@@ -4,10 +4,10 @@
 # zakłada potem: sudo entrypoint install --gateway-name <nazwa> --email <e-mail>
 #
 #   curl -fsSL <adres>/install.sh | sudo sh
-#   sudo ENTRYPOINT_TARBALL=./entrypoint_0.1.0_linux_amd64.tar.gz sh install.sh
+#   sudo ENTRYPOINT_TARBALL=./entrypoint_0.1.1_linux_amd64.tar.gz sh install.sh
 set -eu
 
-VERSION="${ENTRYPOINT_VERSION:-0.1.0}"
+VERSION="${ENTRYPOINT_VERSION:-0.1.1}"
 REPO="${ENTRYPOINT_REPO:-k18k/entrypoint}"
 TARBALL="${ENTRYPOINT_TARBALL:-}"
 OPT=/opt/entrypoint

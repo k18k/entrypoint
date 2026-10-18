@@ -54,10 +54,17 @@ var (
 	Containers = []string{Gateway, Gateway2, ClientA, ClientB, ClientN22, Attacker, Upstream, ACME, DNS}
 )
 
-const (
-	TunnelName = "tunnel.ep.test"
-	Version    = "0.1.0"
-)
+const TunnelName = "tunnel.ep.test"
+
+// Version to wersja z versions.json (nazwa paczki wydania instalowanej w testach).
+var Version = func() string {
+	var v struct {
+		Entrypoint string `json:"entrypoint"`
+	}
+	b, _ := os.ReadFile(filepath.Join(Repo(), "versions.json"))
+	_ = json.Unmarshal(b, &v)
+	return v.Entrypoint
+}()
 
 func name(s string) string { return fmt.Sprintf("ep%d-%s", Shard, s) }
 

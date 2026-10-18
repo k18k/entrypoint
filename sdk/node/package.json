@@ -1,6 +1,6 @@
 {
   "name": "@k18k/entrypoint",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "SDK Entrypoint: tunel z aplikacji do bramy Entrypoint (kontrakt bazowy i adapter node:http)",
   "homepage": "https://github.com/k18k/entrypoint",
   "license": "Apache-2.0",

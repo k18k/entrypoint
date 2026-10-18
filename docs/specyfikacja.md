@@ -23,7 +23,7 @@ Pierwsza używalna wersja to v0.1, przeznaczona do własnego użytku i sterowana
 | Wersja | Charakter | Zakres | Warunek wydania |
 | --- | --- | --- | --- |
 | v0.0.x | Prototyp | Rdzeń wariantu B sterowany z CLI, eksperymenty 1–3 | Wyniki eksperymentów zapisane (sekcja 17) |
-| v0.1 | Do własnego użytku | Instalator, routing HTTP(S) i WebSockety, upstreamy IP:port, tunele z tokenami per serwis, prywatne CA, odwołanie tokenów, konektor, SDK z adapterem Express, CLI, backup i restore | Lista gotowości v0.1 (sekcja 19) |
+| v0.1 | Do własnego użytku | Instalator, routing HTTP(S) i WebSockety, upstreamy IP:port, tunele z tokenami per serwis, prywatne CA, odwołanie tokenów, konektor, SDK z adapterem node:http, CLI, backup i restore | Lista gotowości v0.1 (sekcja 19) |
 | v0.2.0 | Pierwsze publiczne | Panel, adaptery Fastify i Hono, aktualizacja z automatycznym rollbackiem, tryb serwisowy, pełne testy e2e i awarii, ARM64 | Lista gotowości v0.2.0 (sekcja 19) |
 | v0.3 | Rozszerzenie | Statyczne wydania | Testy zestawu statyki |
 | v0.4 | Rozszerzenie | Przekierowania TCP/UDP i TURN, po osobnych prototypach | Wyniki prototypów UDP i TURN |
@@ -227,7 +227,7 @@ npx @k18k/entrypoint tunnel --service api --upstream http://127.0.0.1:3000
 
 | Adapter | Wersja | Co robi |
 | --- | --- | --- |
-| `@k18k/entrypoint/express` | v0.1 | `connectTo(app)` uruchamia serwer na `127.0.0.1:0` i tunel; przy drainie przestaje przyjmować połączenia, wysyła `Connection: close`, zamyka WebSockety kodem 1001 |
+| `@k18k/entrypoint/http` | v0.1 | `expose(handler)` (dowolny handler `(req, res)`, także aplikacja Express) uruchamia serwer na `127.0.0.1:0` i tunel; przy drainie przestaje przyjmować połączenia, wysyła `Connection: close`, zamyka WebSockety kodem 1001 |
 | `@k18k/entrypoint/fastify` | v0.2.0 | Czeka na `ready()` i używa serwera Fastify, z tym samym drainem |
 | `@k18k/entrypoint/hono` | v0.2.0 | Uruchamia handler przez adapter Node dla Hono, z tym samym drainem |
 
@@ -465,7 +465,7 @@ Po każdym teście zostają artefakty: logi wszystkich kontenerów, zastosowane 
 | 6 | Stan konfiguracji | Konflikt `baseRev`; błąd Caddy po kroku autoryzacji; zabicie entrypointd w trakcie stosowania; dryf | v0.1 |
 | 7 | Odwołanie tokenów | Testy 3.1–3.3 w v0.1, 3.4–3.5 w v0.2.0 | v0.1 |
 | 8 | Operacje | Backup i restore na świeżym kontenerze; restore pod nowym IP przy stałej nazwie bramy; aktualizacja z błędną migracją i z nieudaną kontrolą zdrowia; tryb serwisowy | v0.1 (backup, restore), v0.2.0 (aktualizacja) |
-| 9 | SDK i adaptery | Kontrakt bazowy i adaptery w macierzy wersji Node.js; `kill -9` rodzica kończy konektor i frpc | v0.1 (Express), v0.2.0 (pozostałe) |
+| 9 | SDK i adaptery | Kontrakt bazowy i adaptery w macierzy wersji Node.js; `kill -9` rodzica kończy konektor i frpc | v0.1 (node:http), v0.2.0 (pozostałe) |
 | 10 | Panel | Logowanie i limit prób; ciasteczko HttpOnly, Secure, SameSite; CSRF; trasy, serwisy, tokeny; odwołanie z panelu | v0.2.0 |
 | 11 | Odporność | Awaria entrypointd, frps i atrapy klienta API; restart Caddy; odcięcie sieci klienta na 5 s i 60 s; straty pakietów | v0.1 (podstawowe), v0.2.0 (pełne) |
 | 12 | Ochrona sekretów | Przeszukanie logów, błędów i zdarzeń pod kątem tokenów i kluczy; uprawnienia plików z sekretami | v0.1 |
@@ -480,7 +480,7 @@ Po każdym teście zostają artefakty: logi wszystkich kontenerów, zastosowane 
 - [ ] Zestawy e2e 1–7, 12 oraz części v0.1 zestawów 8, 9 i 11 zielone w Dockerze
 - [ ] Instalacja na prawdziwym VPS z prawdziwym certyfikatem
 - [ ] Host do upstreamu przez VPN działa, łącznie z WebSocketem
-- [ ] Host do tunelu z dwiema replikami Express działa; zatrzymanie jednej nie przerywa serwisu
+- [ ] Host do tunelu z dwiema replikami (adapter node:http) działa; zatrzymanie jednej nie przerywa serwisu
 - [ ] Odwołany token nie łączy się ponownie, a jego aktywna sesja jest zrywana
 - [ ] Backup i restore na świeżym kontenerze
 - [ ] README z instalacją i użyciem CLI

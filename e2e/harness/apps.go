@@ -31,8 +31,9 @@ type AppOptions struct {
 	DrainMs   int
 	CtlPort   int
 	Health    string
-	Wait      bool // czekaj na zdrową rejestrację
-	Unhealthy bool // start z niezdanym health checkiem
+	Wait      bool   // czekaj na zdrową rejestrację
+	Unhealthy bool   // start z niezdanym health checkiem
+	Env       string // dodatkowe zmienne środowiska, np. "CONNECT_TO=1 "
 }
 
 // StartApp uruchamia aplikację; pakiet połączenia trafia do pliku 0600, nie do argumentów.
@@ -60,7 +61,7 @@ func (e *Env) StartApp(o AppOptions) *App {
 	if o.Unhealthy {
 		unhealthy = "START_UNHEALTHY=1 "
 	}
-	script := fmt.Sprintf(`cd /app && `+unhealthy+`ENTRYPOINT_CONNECT="$(cat %s)" MODE=%s SERVICE=%s REPLICA=%s DRAIN_MS=%d CTL_PORT=%d HEALTH=%s ENTRYPOINT_CONNECTOR=/app/node_modules/@k18k/entrypoint-linux-x64/bin/entrypoint-connector nohup node server.js > %s 2>&1 & echo $! > /tmp/app-%s.pid`,
+	script := fmt.Sprintf(`cd /app && `+unhealthy+o.Env+` ENTRYPOINT_CONNECT="$(cat %s)" MODE=%s SERVICE=%s REPLICA=%s DRAIN_MS=%d CTL_PORT=%d HEALTH=%s ENTRYPOINT_CONNECTOR=/app/node_modules/@k18k/entrypoint-linux-x64/bin/entrypoint-connector nohup node server.js > %s 2>&1 & echo $! > /tmp/app-%s.pid`,
 		secret, o.Mode, o.Service, o.Replica, o.DrainMs, o.CtlPort, o.Health, a.Log, o.Replica)
 	e.MustSh(o.Container, script)
 	if o.Wait {

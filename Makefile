@@ -56,6 +56,7 @@ dist: deps build
 
 # Pakiety npm: SDK i pakiety platform z konektorem i frpc.
 sdk: dist
+	cd sdk/node && npm pkg set version=$(VERSION)
 	python3 scripts/release-assets.py manifest
 	cd sdk/node && ENTRYPOINT_SKIP_CONNECTOR_DOWNLOAD=1 npm install --no-audit --no-fund && npm run check && npm run build
 	mkdir -p dist/npm
@@ -90,8 +91,8 @@ e2e-build: dist sdk e2e/.run
 	mkdir -p dist/e2e
 	cd e2e && CGO_ENABLED=0 go build -o ../dist/e2e/testsrv ./cmd/testsrv
 	docker build -q -t ep-e2e-gateway e2e/images/gateway >/dev/null
-	docker build -q -t ep-e2e-client -f e2e/images/client/Dockerfile . >/dev/null
-	docker build -q -t ep-e2e-client-node22 --build-arg NODE_IMAGE=node:22-trixie-slim -f e2e/images/client/Dockerfile . >/dev/null
+	docker build -q -t ep-e2e-client --build-arg VERSION=$(VERSION) -f e2e/images/client/Dockerfile . >/dev/null
+	docker build -q -t ep-e2e-client-node22 --build-arg VERSION=$(VERSION) --build-arg NODE_IMAGE=node:22-trixie-slim -f e2e/images/client/Dockerfile . >/dev/null
 	docker build -q -t ep-e2e-upstream -f e2e/images/upstream/Dockerfile . >/dev/null
 	docker build -q -t ep-e2e-chaos e2e/images/chaos >/dev/null
 	docker build -q -t ep-e2e-connector -f docker/connector/Dockerfile dist/connector >/dev/null

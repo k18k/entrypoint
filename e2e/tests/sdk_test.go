@@ -144,3 +144,16 @@ func firstLines(s string, n int) string {
 	}
 	return strings.Join(out, "\n")
 }
+
+// Przestarzały alias connectTo (API 0.1.0) działa jak expose.
+func TestSDK_DeprecatedConnectToAlias(t *testing.T) {
+	e := apiSetup(t)
+	_, connect := e.Token("api")
+	e.StartApp(h.AppOptions{Container: h.ClientA, Connect: connect, Replica: "alias", Env: "CONNECT_TO=1", Wait: true})
+	e.WaitHTTPS("https://api.ep.test/whoami", 200)
+	code, body, err := get(e.HTTPClient(), "https://api.ep.test/whoami")
+	result(t, "connectTo (alias): kod %d, replika %q", code, replicaOf(body))
+	if err != nil || code != 200 || replicaOf(body) != "alias" {
+		t.Fatalf("alias connectTo: %d %v %s", code, err, body)
+	}
+}

@@ -13,7 +13,7 @@ export interface WebSocketServerLike {
   clients: Set<{ close(code?: number, reason?: string): void }>;
 }
 
-export interface ConnectOptions extends Omit<TunnelOptions, "upstream"> {
+export interface ExposeOptions extends Omit<TunnelOptions, "upstream"> {
   /** Serwery WebSocket podpięte pod server (np. new WebSocketServer({ server })). */
   websockets?: WebSocketServerLike[];
   /** Obsługa SIGTERM/SIGINT: drain i zakończenie procesu (domyślnie true). */
@@ -59,10 +59,11 @@ function trackEventStream(res: ServerResponse, set: Set<ServerResponse>): void {
 // Ramka zamknięcia WebSocket z kodem 1001 (Going Away), bez maski (serwer -> klient).
 const WS_CLOSE_1001 = Buffer.from([0x88, 0x02, 0x03, 0xe9]);
 
-export async function connectTo(
-  handler: RequestHandler,
-  opts: ConnectOptions,
-): Promise<Connection> {
+/**
+ * Wystawia handler HTTP przez bramę Entrypoint: uruchamia serwer na 127.0.0.1 (losowy port,
+ * niedostępny z sieci) i tunel do niego. Pakiet połączenia: opts.connect albo ENTRYPOINT_CONNECT.
+ */
+export async function expose(handler: RequestHandler, opts: ExposeOptions): Promise<Connection> {
   let draining = false;
   const sockets = new Set<Socket>();
   const upgraded = new Set<Socket>();
@@ -166,3 +167,9 @@ export async function connectTo(
 
   return { server, tunnel: t, drain, close };
 }
+
+/** @deprecated Od 0.1.1: użyj ExposeOptions. */
+export type ConnectOptions = ExposeOptions;
+
+/** @deprecated Od 0.1.1: użyj expose(). */
+export const connectTo: typeof expose = expose;
