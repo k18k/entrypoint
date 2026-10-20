@@ -292,3 +292,11 @@ Na prośbę właściciela specyfikacji adapter `@k18k/entrypoint/express` zastą
 
 - Wpływ pełnej niedostępności entrypointd na sesje (test 3.1b): zaakceptowany.
 - Jedna binarka z wbudowanymi Caddy i frps oraz supervisor `entrypoint run` (PID 1 w kontenerze): odrzucone. Architektura zostaje bez zmian: oficjalne binarki Caddy i frp, osobne procesy pod systemd.
+
+## Security issues #1–#3 (2026-10-20)
+
+| Issue | Change | Test and result |
+| --- | --- | --- |
+| [#1](https://github.com/k18k/entrypoint/issues/1) Revocation after an entrypointd crash | None in code: the revocation is durable before the command returns, the snapshot after restart excludes revoked tokens, Ping re-checks every session, the systemd socket keeps queued Pings. Guarantee written into spec sections 4 and 6. | `TestRevoke_CrashRightAfterRevoke`: revoke, then immediately `kill -9 entrypointd`, with a modified client holding a streaming connection. Stream closed after 8.8 s, no reconnect, re-login refused with `ep:revoked`. |
+| [#2](https://github.com/k18k/entrypoint/issues/2) Resource isolation between tokens | Per-token limits enforced by the plugin, also for valid tokens: 30 logins per minute, 20 live sessions, 60 proxy registrations per minute. frps `maxPoolCount` 10 → 2. Per-service bandwidth and connection limits are left for v0.2.0, with the decision on per-IP limits. | `TestTunnels_TokenAbuseIsolation`: 45 login and registration cycles of token A in 13.7 s, 16 rate-limited; service B 0 errors of 604, p95 2 ms (baseline 2 ms). Thresholds set before measuring: 0 errors, p95 ≤ baseline + 200 ms. |
+| [#3](https://github.com/k18k/entrypoint/issues/3) ACME consent vs. wildcard routes | A wildcard route alone authorizes no certificates. Names via `--tls-name`, obtained up front. Any-subdomain on-demand only with `--tls-on-demand` (10 new names per hour). Spec section 9 updated. | `TestTLS_NoCertificateWithoutRoute` (Pebble): 10 random SNIs under the wildcard got 0 certificates, with no ACME activity in Caddy logs. The explicit name and the opted-in on-demand name got certificates. |
