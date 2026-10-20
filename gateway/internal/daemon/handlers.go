@@ -363,7 +363,8 @@ func (d *Daemon) hServiceRm(w http.ResponseWriter, r *http.Request) {
 
 func routeInfo(rt spec.Route) api.RouteInfo {
 	return api.RouteInfo{ID: rt.ID, Host: rt.Host, Prefix: rt.Prefix, Service: rt.Service, Upstream: rt.Upstream,
-		StripPrefix: rt.StripPrefix, MaxBodyBytes: rt.EffectiveMaxBody(), ResponseHeaderTimeout: rt.EffectiveHeaderTimeout(), ACME: rt.ACME}
+		StripPrefix: rt.StripPrefix, MaxBodyBytes: rt.EffectiveMaxBody(), ResponseHeaderTimeout: rt.EffectiveHeaderTimeout(), ACME: rt.ACME,
+		TLSNames: rt.TLSNames, TLSOnDemand: rt.TLSOnDemand}
 }
 
 func (d *Daemon) hRoutes(w http.ResponseWriter, r *http.Request) {
@@ -425,7 +426,8 @@ func (d *Daemon) hRouteAdd(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		created = spec.Route{ID: newRouteID(s), Host: host, Prefix: prefix, Service: req.Service, Upstream: req.Upstream,
-			StripPrefix: req.StripPrefix, MaxBodyBytes: req.MaxBodyBytes, ResponseHeaderTimeout: req.ResponseHeaderTimeout, ACME: req.ACME}
+			StripPrefix: req.StripPrefix, MaxBodyBytes: req.MaxBodyBytes, ResponseHeaderTimeout: req.ResponseHeaderTimeout, ACME: req.ACME,
+			TLSNames: req.TLSNames, TLSOnDemand: req.TLSOnDemand}
 		s.Routes = append(s.Routes, created)
 		return fmt.Sprintf("dodanie trasy %s %s%s -> %s", created.ID, host, prefix, created.Target()), nil
 	})

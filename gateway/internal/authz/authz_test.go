@@ -3,11 +3,15 @@ package authz
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/k18k/entrypoint/gateway/internal/config"
 	"github.com/k18k/entrypoint/gateway/internal/render"
 	"github.com/k18k/entrypoint/gateway/internal/spec"
 	"github.com/k18k/entrypoint/gateway/internal/token"
@@ -20,7 +24,8 @@ func setup(t *testing.T) (*Server, string, string) {
 		Tokens:   []spec.Token{{ID: id, ServiceID: 1, Hash: hash}},
 		Routes:   []spec.Route{{ID: "r000001", Host: "a.example.com", Prefix: "/", Service: "api"}, {ID: "r000002", Host: "*.w.example.com", Prefix: "/", Service: "api"}},
 	}
-	srv := New(slog.New(slog.NewTextHandler(io.Discard, nil)), nil, 3, 2, nil)
+	srv := New(slog.New(slog.NewTextHandler(io.Discard, nil)), nil,
+		config.Limits{FailedLoginsPerMinute: 3, OnDemandCertsPerHour: 2, LoginsPerTokenPerMinute: 5, SessionsPerToken: 2, ProxyOpsPerTokenPerMinute: 60}, time.Minute, nil)
 	srv.Swap(render.Authz(1, s), map[string]bool{}, []string{"a.example.com", "*.w.example.com"})
 	return srv, full, id
 }
@@ -87,5 +92,34 @@ func TestAsk(t *testing.T) {
 	code("y.w.example.com")
 	if code("z.w.example.com") != 429 {
 		t.Fatal("limit nowych subdomen")
+	}
+}
+
+// Issue #2: limits apply to valid tokens too.
+func TestPerTokenLimits(t *testing.T) {
+	s, full, _ := setup(t)
+	login := func(ip string) response {
+		return call(t, s, "Login", map[string]any{"metas": map[string]string{"token": full}, "client_address": ip + ":1"})
+	}
+	ping := func(run string) {
+		call(t, s, "Ping", map[string]any{"user": map[string]any{"metas": map[string]string{"token": full}, "run_id": run}})
+	}
+	// Two live sessions (seen via Ping) reach SessionsPerToken=2: the next login is refused.
+	if r := login("1.1.1.1"); r.Reject {
+		t.Fatal("first login refused")
+	}
+	ping("run-a")
+	ping("run-b")
+	if r := login("1.1.1.2"); !r.Reject || !strings.HasPrefix(r.RejectReason, ReasonSessionLimit) {
+		t.Fatalf("session limit not enforced: %+v", r)
+	}
+	// Login rate (5/min) counts every attempt with a valid token, from any IP.
+	s2, full2, _ := setup(t)
+	var last response
+	for i := 0; i < 6; i++ {
+		last = call(t, s2, "Login", map[string]any{"metas": map[string]string{"token": full2}, "client_address": fmt.Sprintf("10.0.0.%d:1", i)})
+	}
+	if !last.Reject || !strings.HasPrefix(last.RejectReason, ReasonRateLimited) {
+		t.Fatalf("login rate not enforced: %+v", last)
 	}
 }

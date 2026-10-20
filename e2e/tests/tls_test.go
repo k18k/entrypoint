@@ -60,29 +60,44 @@ func TestTLS_CertificateAfterDNSRecord(t *testing.T) {
 func TestTLS_NoCertificateWithoutRoute(t *testing.T) {
 	e := h.New(t)
 	e.FreshGateway("--test-renew-interval", "5s")
-	e.SetDNS(map[string]string{"routed.ep.test": h.GatewayIP, "noroute.ep.test": h.GatewayIP, "a.wild.ep.test": h.GatewayIP, "b.wild.ep.test": h.GatewayIP, "other.ep.test": h.GatewayIP})
+	dns := map[string]string{"routed.ep.test": h.GatewayIP, "noroute.ep.test": h.GatewayIP, "a.wild.ep.test": h.GatewayIP,
+		"b.wild.ep.test": h.GatewayIP, "x.od.ep.test": h.GatewayIP}
+	random := []string{}
+	for i := 0; i < 10; i++ {
+		n := fmt.Sprintf("rnd%d-%d.wild.ep.test", i, time.Now().UnixNano()%100000)
+		random = append(random, n)
+		dns[n] = h.GatewayIP
+	}
+	e.SetDNS(dns)
 	e.Route("routed.ep.test", "--to", h.UpstreamVPN)
-	e.Route("*.wild.ep.test", "--to", h.UpstreamVPN)
+	// Issue #3: a wildcard route authorizes only explicit names; on-demand is an explicit opt-in.
+	e.Route("*.wild.ep.test", "--to", h.UpstreamVPN, "--tls-name", "a.wild.ep.test")
+	e.Route("*.od.ep.test", "--to", h.UpstreamVPN, "--tls-on-demand")
 	e.WaitHTTPS("https://routed.ep.test/", 200)
-	e.WaitHTTPS("https://a.wild.ep.test/", 200) // subdomena w locie
+	e.WaitHTTPS("https://a.wild.ep.test/", 200) // explicit name, obtained up front
+	e.WaitHTTPS("https://x.od.ep.test/", 200)   // opted-in on-demand subdomain
 	_, _, errNo := peerCert("noroute.ep.test")
-	_, _, errOther := peerCert("other.ep.test")
 	_, _, errB := peerCert("b.wild.ep.test")
-	j := e.Journal(h.Gateway, "entrypointd")
-	asked := strings.Contains(j, "zgoda na certyfikat odrzucona")
+	issued := 0
+	for _, n := range random {
+		if _, _, err := peerCert(n); err == nil {
+			issued++
+		}
+	}
+	time.Sleep(3 * time.Second)
 	certs := e.MustSh(h.Gateway, "find /var/lib/entrypoint/caddy/storage/certificates -name '*.crt' | sed 's|.*/||' | sort | tr '\\n' ' '")
-	result(t, "host bez trasy: certyfikat=%v; inny host bez trasy: %v; druga subdomena wildcardu: %v; odmowy w logu: %v; certyfikaty w magazynie: %s",
-		errNo == nil, errOther == nil, errB == nil, asked, certs)
-	if errNo == nil || errOther == nil || strings.Contains(certs, "noroute") || strings.Contains(certs, "*.wild") {
-		t.Fatal("wystawiono certyfikat dla hosta bez trasy albo wildcard bez DNS-01")
+	orders := strings.Count(e.Journal(h.Gateway, "entrypoint-caddy"), "rnd")
+	result(t, "no route: cert=%v; unapproved wildcard subdomain: cert=%v; %d random SNIs: certs=%d, Caddy log mentions=%d; storage: %s",
+		errNo == nil, errB == nil, len(random), issued, orders, certs)
+	if errNo == nil || errB == nil || issued > 0 || strings.Contains(certs, "rnd") || strings.Contains(certs, "noroute") ||
+		strings.Contains(certs, "b.wild") || strings.Contains(certs, "*.wild") {
+		t.Fatal("certificate issued for a name without consent")
 	}
-	if errB != nil {
-		t.Fatalf("subdomena wildcardu bez certyfikatu: %v", errB)
+	if !strings.Contains(certs, "a.wild.ep.test.crt") || !strings.Contains(certs, "x.od.ep.test.crt") {
+		t.Fatalf("approved names without certificate: %s", certs)
 	}
-	// Licznik certyfikatów tej instalacji w statusie.
-	st := e.MustEP("status")
-	if !strings.Contains(st, "ep.test: 3") {
-		t.Errorf("licznik certyfikatów w statusie:\n%s", st)
+	if st := e.MustEP("status"); !strings.Contains(st, "ep.test: 3") {
+		t.Errorf("certificate counter in status:\n%s", st)
 	}
 }
 
@@ -95,7 +110,7 @@ func TestTLS_OnDemandRateLimit(t *testing.T) {
 		recs[fmt.Sprintf("s%d.burst.ep.test", i)] = h.GatewayIP
 	}
 	e.SetDNS(recs)
-	e.Route("*.burst.ep.test", "--to", h.UpstreamVPN)
+	e.Route("*.burst.ep.test", "--to", h.UpstreamVPN, "--tls-on-demand")
 	time.Sleep(2 * time.Second)
 	ok := 0
 	for i := 0; i < 12; i++ {

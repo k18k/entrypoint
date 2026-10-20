@@ -55,6 +55,10 @@ type Limits struct {
 	ReplicasPerToken      int `json:"replicasPerToken"`
 	FailedLoginsPerMinute int `json:"failedLoginsPerMinute"`
 	OnDemandCertsPerHour  int `json:"onDemandCertsPerHour"`
+	// Per-token limits on control-plane operations, counted also for valid tokens (issue #2).
+	LoginsPerTokenPerMinute   int `json:"loginsPerTokenPerMinute"`
+	SessionsPerToken          int `json:"sessionsPerToken"`
+	ProxyOpsPerTokenPerMinute int `json:"proxyOpsPerTokenPerMinute"`
 }
 
 type PortPool struct {
@@ -99,7 +103,8 @@ func Default() Config {
 		CaddyBin:         OptDir + "/current/bin/caddy",
 		PortPool:         PortPool{Start: 20000, End: 29999},
 		ACME:             ACME{CA: LetsEncryptProd, StagingCA: LetsEncryptStaging},
-		Limits:           Limits{ReplicasPerToken: 10, FailedLoginsPerMinute: 10, OnDemandCertsPerHour: 10},
+		Limits: Limits{ReplicasPerToken: 10, FailedLoginsPerMinute: 10, OnDemandCertsPerHour: 10,
+			LoginsPerTokenPerMinute: 30, SessionsPerToken: 20, ProxyOpsPerTokenPerMinute: 60},
 		HeartbeatTimeout: 40,
 		DriftInterval:    Duration{30 * time.Second},
 	}

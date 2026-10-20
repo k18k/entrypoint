@@ -78,7 +78,7 @@ Konfiguracja to ciąg numerowanych, niezmiennych rewizji w SQLite. entrypointd z
 
 **Częściowe niepowodzenie.** Gdy krok 4 zawiedzie po udanym kroku 3, entrypointd przywraca snapshot z ostatniej rewizji `applied`, nadal z odjętymi odwołaniami. N dostaje status `failed` z treścią błędu i nie jest ponawiana w pętli. Sesje tuneli otwarte w czasie obowiązywania snapshotu N są po rollbacku ponownie sprawdzane wobec przywróconego stanu, a niezgodne zrywane.
 
-**Restart i awaria w trakcie.** Po starcie entrypointd stosuje ponownie ostatnią rewizję `applied` do wszystkich komponentów (operacja idempotentna). Rewizja przerwana w stanie `applying` jest ponawiana raz, a przy błędzie wycofywana jak wyżej.
+**Restart i awaria w trakcie.** Po starcie entrypointd stosuje ponownie ostatnią rewizję `applied` do wszystkich komponentów (operacja idempotentna). Rewizja przerwana w stanie `applying` jest ponawiana raz, a przy błędzie wycofywana jak wyżej. Snapshot autoryzacji wczytany przy starcie jest zawsze pomniejszony o dziennik odwołań, więc odwołanie utrwalone przed awarią obowiązuje od pierwszego zapytania po restarcie.
 
 **Dryf.** Co 30 s entrypointd porównuje hash konfiguracji zastosowanej w Caddy z oczekiwanym. Rozbieżność kończy się ponownym zastosowaniem i wpisem w logu.
 
@@ -132,7 +132,9 @@ Klient tunelu zawsze weryfikuje certyfikat serwera, autoryzacja działa bez pane
 
 1. Wpis trafia do dziennika odwołań: osobnej tabeli tylko do dopisywania, poza rewizjami. Rollback rewizji ani automatyczny rollback aktualizacji go nie cofają.
 2. Snapshot autoryzacji jest aktualizowany od razu, więc nowe logowania i rejestracje z tym tokenem są odrzucane.
-3. Aktywne sesje tokenu są zrywane przez bramę. Mechanizm wybiera prototyp (test 3.1): odrzucanie operacji Ping przez plugin albo, rezerwowo, restart frps z krótką przerwą dla pozostałych tuneli.
+3. Aktywne sesje tokenu są zrywane przez bramę: plugin odrzuca operację Ping, sprawdzając każdą sesję przy każdym heartbeat wobec bieżącego snapshotu. Klient z heartbeat (konektor co 10 s) jest odłączany przy najbliższym Ping; klient, który heartbeatów nie wysyła albo ignoruje odrzucenie, najpóźniej po `heartbeatTimeout` frps (40 s). `entrypoint token revoke --now` zrywa sesję natychmiast restartem frps (krótka przerwa dla pozostałych tuneli).
+
+Odwołanie jest utrwalone, zanim polecenie zwróci sukces. Nie ma osobnego kroku zrywania, który awaria entrypointd mogłaby przerwać: po restarcie snapshot jest pomniejszony o dziennik odwołań, a zapytania Ping czekające w gnieździe systemd są obsługiwane przez nowy proces. Gwarancję sprawdza test `TestRevoke_CrashRightAfterRevoke` (odwołanie, zaraz potem `kill -9` entrypointd, zmodyfikowany klient z długotrwałym połączeniem).
 
 **Odwołania a awaryjny restore.** Backup sprzed odwołania nie zna tego odwołania. Dlatego awaryjny restore unieważnia wszystkie odtworzone tokeny, zanim frps i plugin zaczną przyjmować logowania; administrator wydaje je ponownie. Kopia dziennika odwołań poza maszyną, pozwalająca tokeny zachować, jest opcją na później.
 
@@ -196,7 +198,7 @@ Caddy wystawia certyfikaty per host przez ACME (wyzwania HTTP-01 i TLS-ALPN). En
 - **Licznik wystawionych certyfikatów** w `entrypoint status` liczy tylko certyfikaty tej instalacji i służy wyłącznie do ostrzeżeń. Nie widzi certyfikatów wystawionych poza Entrypointem, więc nie jest kontrolą.
 - **Testy i CI** używają testowego urzędu Pebble, a próby na prawdziwym serwerze środowiska staging Let's Encrypt. Każdy host można przełączyć w tryb testowy.
 
-**Subdomeny w locie** przy rekordzie `A *.example.com`: przed wystawieniem certyfikatu Caddy pyta endpoint zgody w entrypointd, a ten zgadza się tylko dla hostów z trasą. Każda nowa subdomena zużywa miejsce w limicie tygodniowym.
+**Trasy wildcard i certyfikaty** przy rekordzie `A *.example.com`: sama trasa wildcard nie jest zgodą na wystawienie certyfikatu. Certyfikaty dostają tylko jawnie wskazane nazwy (`route add *.example.com ... --tls-name a.example.com`, zamawiane od razu). Certyfikaty w locie dla dowolnej subdomeny wymagają jawnej zgody na trasie (`--tls-on-demand`): Caddy pyta wtedy endpoint zgody w entrypointd, a ten przepuszcza najwyżej 10 nowych subdomen na godzinę. Każda nowa nazwa zużywa miejsce w limicie tygodniowym.
 
 **Certyfikaty wildcard (v1)** wymagają wyzwania DNS-01: przez API dostawcy DNS albo przez delegację `_acme-challenge` rekordem CNAME do strefy, którą kontrolujemy.
 

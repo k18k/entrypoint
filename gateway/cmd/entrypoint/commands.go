@@ -339,6 +339,9 @@ func cmdRouteAdd(args []string) error {
 	maxBody := fs.String("max-body", "", "maksymalny rozmiar treści żądania (domyślnie 50MB)")
 	headerTimeout := fs.Duration("header-timeout", 0, "timeout nagłówków odpowiedzi (domyślnie 60s)")
 	staging := fs.Bool("acme-staging", false, "certyfikat z testowego środowiska ACME (staging)")
+	var tlsNames multi
+	fs.Var(&tlsNames, "tls-name", "trasa wildcard: konkretna nazwa z certyfikatem (można powtórzyć)")
+	onDemand := fs.Bool("tls-on-demand", false, "trasa wildcard: certyfikaty w locie dla dowolnej subdomeny (limit 10 nowych na godzinę)")
 	asJSON := fs.Bool("json", false, "wyjście JSON")
 	br := baseRevFlag(fs)
 	pos, err := parse(fs, args)
@@ -363,6 +366,8 @@ func cmdRouteAdd(args []string) error {
 	if *staging {
 		req.ACME = "staging"
 	}
+	req.TLSNames = tlsNames
+	req.TLSOnDemand = *onDemand
 	c, err := client()
 	if err != nil {
 		return err
@@ -438,6 +443,12 @@ func cmdRouteList(args []string) error {
 		}
 		if r.ACME == "staging" {
 			opts = append(opts, "acme-staging")
+		}
+		if len(r.TLSNames) > 0 {
+			opts = append(opts, "tls-names="+strings.Join(r.TLSNames, ","))
+		}
+		if r.TLSOnDemand {
+			opts = append(opts, "tls-on-demand")
 		}
 		opts = append(opts, fmt.Sprintf("max-body=%dMB", r.MaxBodyBytes>>20), fmt.Sprintf("header-timeout=%ds", r.ResponseHeaderTimeout))
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", r.ID, r.Host, r.Prefix, target(r), strings.Join(opts, " "))

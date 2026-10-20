@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 )
@@ -15,6 +16,7 @@ type Sample struct {
 	Status  int // 0 = błąd transportu
 	Replica string
 	Err     string
+	Dur     time.Duration
 }
 
 // Load wysyła ciągły ruch GET do url z kilku gorutyn (każda z własnym keep-alive).
@@ -51,6 +53,7 @@ func (e *Env) StartLoad(url string, workers int, every time.Duration) *Load {
 					_ = json.Unmarshal(b, &body)
 					s.Replica = body.Replica
 				}
+				s.Dur = time.Since(s.At)
 				l.mu.Lock()
 				l.Samples = append(l.Samples, s)
 				l.mu.Unlock()
@@ -95,4 +98,17 @@ func Count(ss []Sample, f func(Sample) bool) int {
 		}
 	}
 	return n
+}
+
+// P95 returns the 95th percentile request duration.
+func P95(ss []Sample) time.Duration {
+	if len(ss) == 0 {
+		return 0
+	}
+	d := make([]time.Duration, len(ss))
+	for i, s := range ss {
+		d[i] = s.Dur
+	}
+	sort.Slice(d, func(i, j int) bool { return d[i] < d[j] })
+	return d[len(d)*95/100]
 }

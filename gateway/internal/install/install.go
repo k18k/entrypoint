@@ -313,7 +313,8 @@ func FrpsConfig(cfg config.Config, apiPassword string) ([]byte, error) {
 				"keyFile":  cfg.TunnelKey(),
 			},
 			"heartbeatTimeout": cfg.HeartbeatTimeout,
-			"maxPoolCount":     10,
+			// Pooled work connections a session may hold idle (the connector uses 1).
+			"maxPoolCount": 2,
 		},
 		"webServer": map[string]any{
 			"addr":     host,

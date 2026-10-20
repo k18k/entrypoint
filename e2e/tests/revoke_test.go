@@ -264,3 +264,51 @@ func TestRevoke_3_3_RestoreInvalidatesTokens(t *testing.T) {
 	// Sprzątanie: powrót do bramy pod pierwotnym adresem dla kolejnych testów.
 	e.StopContainer(h.Gateway2)
 }
+
+// Issue #1: entrypointd dies right after a revoke (revocation already durable, session not yet
+// dropped). A modified client (raw frpc, no connector) keeps a long-lived connection open.
+// After restart the session must be dropped within heartbeatTimeout and re-login refused.
+func TestRevoke_CrashRightAfterRevoke(t *testing.T) {
+	e, idA, tidA, _ := revokeSetup(t, 10)
+	nameA := "api." + tidA + ".atk"
+	// Long-lived streaming response through the revoked client's tunnel.
+	c := e.HTTPClient()
+	c.Timeout = 0
+	resp, err := c.Get("https://api.ep.test/stream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	streamDone := make(chan time.Time, 1)
+	go func() {
+		buf := make([]byte, 64)
+		for {
+			if _, err := resp.Body.Read(buf); err != nil {
+				streamDone <- time.Now()
+				return
+			}
+		}
+	}()
+	e.MustEP("token", "revoke", idA)
+	t0 := time.Now()
+	e.MustExec(h.Gateway, "systemctl", "kill", "-s", "KILL", "entrypointd")
+	var ended time.Time
+	select {
+	case ended = <-streamDone:
+	case <-time.After(60 * time.Second):
+		t.Fatal("stream of revoked token still open after 60 s")
+	}
+	e.Eventually(30*time.Second, 250*time.Millisecond, "proxy of revoked token offline", func() error {
+		if proxyOnline(e, nameA) {
+			return errors.New("still online")
+		}
+		return nil
+	})
+	time.Sleep(15 * time.Second)
+	reconnected := proxyOnline(e, nameA)
+	rejected := strings.Contains(e.RawFrpcLog(h.Attacker, "a"), "ep:revoked")
+	result(t, "revoke + kill -9 entrypointd: stream closed after %s, reconnected=%v, re-login refused with ep:revoked=%v",
+		ms(ended.Sub(t0)), reconnected, rejected)
+	if ended.Sub(t0) > 45*time.Second || reconnected || !rejected {
+		t.Fatal("revocation not enforced after daemon crash")
+	}
+}

@@ -109,7 +109,7 @@ func Caddy(s *spec.Spec, o CaddyOptions) ([]byte, error) {
 	SortHosts(hosts)
 
 	routes := []any{}
-	var exactProd, exactStaging, wildProd, wildStaging []string
+	var exactProd, exactStaging, wildProd, wildStaging, automate, skip []string
 	for _, h := range hosts {
 		rs := byHost[h]
 		// Najdłuższy prefiks wygrywa: sortujemy malejąco po długości.
@@ -135,15 +135,28 @@ func Caddy(s *spec.Spec, o CaddyOptions) ([]byte, error) {
 		})
 		staging := rs[0].ACME == "staging"
 		wild := strings.HasPrefix(h, "*.")
-		switch {
-		case wild && staging:
-			wildStaging = append(wildStaging, h)
-		case wild:
-			wildProd = append(wildProd, h)
-		case staging:
-			exactStaging = append(exactStaging, h)
-		default:
-			exactProd = append(exactProd, h)
+		names := []string{h}
+		if wild {
+			names = nil
+			onDemand := false
+			for _, r := range rs {
+				names = append(names, r.TLSNames...)
+				onDemand = onDemand || r.TLSOnDemand
+			}
+			automate = append(automate, names...)
+			skip = append(skip, h)
+			if onDemand {
+				if staging {
+					wildStaging = append(wildStaging, h)
+				} else {
+					wildProd = append(wildProd, h)
+				}
+			}
+		}
+		if staging {
+			exactStaging = append(exactStaging, names...)
+		} else {
+			exactProd = append(exactProd, names...)
 		}
 	}
 	// Host bez trasy: 404 (dotyczy tylko żądań, dla których TLS w ogóle się zestawił).
@@ -155,10 +168,10 @@ func Caddy(s *spec.Spec, o CaddyOptions) ([]byte, error) {
 		"routes":    routes,
 		"logs":      obj{},
 	}
-	wildAll := append(append([]string{}, wildProd...), wildStaging...)
-	if len(wildAll) > 0 {
-		// Certyfikatów wildcard nie zamawiamy (wymagają DNS-01, v1); subdomeny dostają certyfikaty w locie.
-		server["automatic_https"] = obj{"skip_certificates": wildAll}
+	if len(skip) > 0 {
+		// No wildcard certificates (they need DNS-01, v1); subdomains get certificates only as
+		// explicit TLS names, or on demand when the route opted in.
+		server["automatic_https"] = obj{"skip_certificates": skip}
 	}
 
 	policies := []any{}
@@ -187,6 +200,10 @@ func Caddy(s *spec.Spec, o CaddyOptions) ([]byte, error) {
 		automation["renew_interval"] = d.String()
 	}
 	tlsApp := obj{"automation": automation}
+	if len(automate) > 0 {
+		sort.Strings(automate)
+		tlsApp["certificates"] = obj{"automate": automate}
+	}
 
 	cfg := obj{
 		"admin": obj{

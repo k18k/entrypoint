@@ -43,7 +43,7 @@ func routingSetup(t *testing.T) *h.Env {
 	e.Route("r.ep.test", "--to", h.UpstreamVPN)
 	e.Route("r.ep.test/api", "--to", h.UpstreamIP+":8081")
 	e.Route("r.ep.test/api/v2", "--to", h.UpstreamVPN, "--strip-prefix")
-	e.Route("*.w.ep.test", "--to", h.UpstreamVPN)
+	e.Route("*.w.ep.test", "--to", h.UpstreamVPN, "--tls-name", "y.w.ep.test")
 	e.Route("x.w.ep.test", "--to", h.UpstreamIP+":8081")
 	e.Route("lim.ep.test", "--to", h.UpstreamVPN, "--max-body", "1MB", "--header-timeout", "2s")
 	e.WaitHTTPS("https://r.ep.test/", 200)

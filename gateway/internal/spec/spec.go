@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -47,6 +48,10 @@ type Route struct {
 	MaxBodyBytes          int64  `json:"maxBodyBytes,omitempty"`
 	ResponseHeaderTimeout int    `json:"responseHeaderTimeout,omitempty"` // sekundy
 	ACME                  string `json:"acme,omitempty"`                  // "" (produkcja) albo "staging"
+	// Wildcard routes only: concrete names allowed to get a certificate (obtained up front),
+	// and the explicit opt-in to on-demand certificates for any subdomain (rate-limited).
+	TLSNames    []string `json:"tlsNames,omitempty"`
+	TLSOnDemand bool     `json:"tlsOnDemand,omitempty"`
 }
 
 // Token to wpis tokenu serwisu. Przechowywany jest wyłącznie hash sekretu.
@@ -336,6 +341,15 @@ func (s *Spec) Validate(poolStart, poolEnd int) error {
 		if r.ACME != "" && r.ACME != "staging" {
 			add("trasa %s: nieznany tryb ACME %q", r.ID, r.ACME)
 		}
+		wild := strings.HasPrefix(r.Host, "*.")
+		if !wild && (len(r.TLSNames) > 0 || r.TLSOnDemand) {
+			add("trasa %s: tlsNames i tlsOnDemand dotyczą tylko tras wildcard", r.ID)
+		}
+		for _, n := range r.TLSNames {
+			if h, err := NormalizeHost(n); err != nil || h != n || strings.HasPrefix(n, "*.") || !MatchesWildcard(r.Host, n) {
+				add("trasa %s: nazwa TLS %q nie jest pojedynczą subdomeną %s", r.ID, n, r.Host)
+			}
+		}
 		if prev, ok := hostACME[r.Host]; ok && prev != r.ACME {
 			add("host %s: trasy mają różne tryby ACME", r.Host)
 		}
@@ -383,7 +397,7 @@ func Diff(a, b *Spec) []string {
 		bs[s.Name] = s
 		if old, ok := as[s.Name]; !ok {
 			out = append(out, fmt.Sprintf("+ serwis %s (port %d)", s.Name, s.Port))
-		} else if old != s {
+		} else if !reflect.DeepEqual(old, s) {
 			out = append(out, fmt.Sprintf("~ serwis %s", s.Name))
 		}
 	}
@@ -401,7 +415,7 @@ func Diff(a, b *Spec) []string {
 		br[r.ID] = true
 		if old, ok := ar[r.ID]; !ok {
 			out = append(out, fmt.Sprintf("+ trasa %s %s%s -> %s", r.ID, r.Host, r.Prefix, r.Target()))
-		} else if old != r {
+		} else if !reflect.DeepEqual(old, r) {
 			out = append(out, fmt.Sprintf("~ trasa %s %s%s -> %s", r.ID, r.Host, r.Prefix, r.Target()))
 		}
 	}
@@ -431,4 +445,32 @@ func Diff(a, b *Spec) []string {
 		}
 	}
 	return out
+}
+
+// MatchesWildcard reports whether name is exactly one label under the wildcard host (*.example.com).
+func MatchesWildcard(wildcard, name string) bool {
+	i := strings.IndexByte(name, '.')
+	return strings.HasPrefix(wildcard, "*.") && i > 0 && name[i:] == wildcard[1:]
+}
+
+// CertHosts returns names allowed to get certificates: exact route hosts, explicit TLS names,
+// and wildcard hosts only when the route opted in to on-demand certificates.
+func (s *Spec) CertHosts() []string {
+	var hs []string
+	seen := map[string]bool{}
+	add := func(h string) {
+		if !seen[h] {
+			seen[h] = true
+			hs = append(hs, h)
+		}
+	}
+	for _, r := range s.Routes {
+		if !strings.HasPrefix(r.Host, "*.") || r.TLSOnDemand {
+			add(r.Host)
+		}
+		for _, n := range r.TLSNames {
+			add(n)
+		}
+	}
+	return hs
 }

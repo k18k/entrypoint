@@ -4,6 +4,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/k18k/entrypoint/gateway/internal/config"
@@ -57,5 +59,36 @@ func TestHashCanonical(t *testing.T) {
 	b, _ := Hash([]byte("{\n \"a\": {\"x\":1,\"y\":2}, \"b\": 1}"))
 	if a != b {
 		t.Fatal("hash zależy od kolejności kluczy")
+	}
+}
+
+// Issue #3: a wildcard route alone authorizes no certificates; explicit names are automated,
+// on-demand only when opted in.
+func TestWildcardCertConsent(t *testing.T) {
+	s := &spec.Spec{Services: []spec.Service{{ID: 1, Name: "api", Port: 20000}}, Routes: []spec.Route{
+		{ID: "r000001", Host: "*.a.example.com", Prefix: "/", Service: "api"},
+		{ID: "r000002", Host: "*.b.example.com", Prefix: "/", Service: "api", TLSNames: []string{"x.b.example.com"}},
+		{ID: "r000003", Host: "*.c.example.com", Prefix: "/", Service: "api", TLSOnDemand: true},
+		{ID: "r000004", Host: "d.example.com", Prefix: "/", Service: "api"},
+	}}
+	if err := s.Validate(20000, 29999); err != nil {
+		t.Fatal(err)
+	}
+	hosts := s.CertHosts()
+	sort.Strings(hosts)
+	if got := strings.Join(hosts, ","); got != "*.c.example.com,d.example.com,x.b.example.com" {
+		t.Fatalf("CertHosts = %v", hosts)
+	}
+	b, _ := Caddy(s, CaddyOptions{ACME: config.ACME{CA: "https://ca"}})
+	cfg := string(b)
+	if !strings.Contains(cfg, `"automate": [`) || !strings.Contains(cfg, `"x.b.example.com"`) || strings.Count(cfg, `"on_demand": true`) != 1 {
+		t.Fatalf("render:\n%s", cfg)
+	}
+	bad := &spec.Spec{Services: s.Services, Routes: []spec.Route{
+		{ID: "r000005", Host: "*.b.example.com", Prefix: "/", Service: "api", TLSNames: []string{"y.z.b.example.com"}},
+		{ID: "r000006", Host: "e.example.com", Prefix: "/", Service: "api", TLSOnDemand: true},
+	}}
+	if err := bad.Validate(20000, 29999); err == nil {
+		t.Fatal("invalid TLS names accepted")
 	}
 }

@@ -15,7 +15,7 @@ import (
 
 // Atakujący serwer HTTP w kontenerze attacker (cel lokalny jego proxy).
 func attackerServer(e *h.Env, port int) {
-	e.MustSh(h.Attacker, fmt.Sprintf(`nohup node -e "require('http').createServer((q,s)=>s.end(JSON.stringify({replica:'atk'}))).listen(%d,'127.0.0.1')" > /tmp/atk-%d.log 2>&1 &`, port, port))
+	e.MustSh(h.Attacker, fmt.Sprintf(`nohup node -e "require('http').createServer((q,s)=>{if(q.url==='/stream'){s.write('x');return setInterval(()=>s.write('x'),200)}s.end(JSON.stringify({replica:'atk'}))}).listen(%d,'127.0.0.1')" > /tmp/atk-%d.log 2>&1 &`, port, port))
 }
 
 // 2.1: zmodyfikowany frpc podaje cudzą grupę, port lub serwis.
@@ -278,5 +278,35 @@ func TestTunnels_2_5_CARotation(t *testing.T) {
 		len(bb.CAs), staleBefore, ms(yBack), xBack, xs.HasEvent("tls_error"), reps, len(nb.CAs))
 	if len(bb.CAs) != 2 || !staleBefore || xBack || strings.Join(reps, ",") != "y" || len(nb.CAs) != 1 {
 		t.Fatal("rotacja CA nie spełnia kryterium")
+	}
+}
+
+// Issue #2: a valid token holder doing rapid login/registration cycles is throttled by the
+// gateway, and another service stays healthy. Thresholds fixed before measuring:
+// B has 0 errors and p95 latency within baseline p95 + 200 ms.
+func TestTunnels_TokenAbuseIsolation(t *testing.T) {
+	e, _, _, _ := revokeSetup(t, 10)
+	load := e.StartLoad("https://b.ep.test/whoami", 2, 50*time.Millisecond)
+	time.Sleep(5 * time.Second)
+	baseline := h.P95(load.Snapshot())
+	t0 := time.Now()
+	// 45 login+register cycles in ~15 s with the same valid token (modified client, no connector).
+	e.KillRawFrpc(h.Attacker, "a")
+	e.MustSh(h.Attacker, `for i in $(seq 1 45); do EP_TOK="$(cat /run/ep/a.tok)" timeout 0.3 frpc -c /run/ep/a.json >> /tmp/frpc-abuse.log 2>&1; done; true`)
+	abuse := time.Since(t0)
+	time.Sleep(2 * time.Second)
+	ss := load.Stop()
+	win := h.Window(ss, t0, time.Now())
+	bad := h.Count(win, func(s h.Sample) bool { return s.Status != 200 })
+	during := h.P95(win)
+	logs, _ := e.Sh(h.Attacker, "cat /tmp/frpc-abuse.log")
+	limited := strings.Count(logs, "ep:rate_limited")
+	result(t, "45 login cycles of token A in %s: rate-limited %d times; service B: %d errors of %d, p95 %s (baseline %s)",
+		ms(abuse), limited, bad, len(win), ms(during), ms(baseline))
+	if limited == 0 {
+		t.Fatal("rapid logins of a valid token were not limited")
+	}
+	if bad > 0 || during > baseline+200*time.Millisecond {
+		t.Fatal("service B degraded by token A")
 	}
 }

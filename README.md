@@ -177,7 +177,7 @@ Odwołania trafiają do osobnego dziennika tylko do dopisywania. Nie cofa ich ro
 | --- | --- |
 | `entrypoint status` | Usługi, rewizja, serwisy z replikami, licznik certyfikatów, ostrzeżenia |
 | `entrypoint service add/rm/list` | Serwisy tuneli; port usuniętego serwisu zostaje zarezerwowany na zawsze |
-| `entrypoint route add/list/rm` | Trasy `host[/prefiks]` do `--to IP:port` albo `--service`; opcje `--strip-prefix`, `--max-body 50MB`, `--header-timeout 60s`, `--acme-staging` |
+| `entrypoint route add/list/rm` | Trasy `host[/prefiks]` do `--to IP:port` albo `--service`; opcje `--strip-prefix`, `--max-body 50MB`, `--header-timeout 60s`, `--acme-staging`, dla wildcardów `--tls-name`, `--tls-on-demand` |
 | `entrypoint token create/list/revoke` | Tokeny serwisów |
 | `entrypoint dns check` | Wymagane rekordy DNS i ich bieżący stan (brama nie zmienia DNS) |
 | `entrypoint ca status`, `ca rotate start\|switch\|finish` | Prywatne CA tunelu i jego rotacja w trzech krokach |
@@ -214,7 +214,7 @@ Restore **unieważnia wszystkie odtworzone tokeny**, bo backup nie zna później
 - Tokeny to 256 losowych bitów; w bazie zapisany jest tylko hash. Tokeny i pakiety połączenia nie trafiają do logów ani komunikatów błędów (zestaw e2e 12). Konektor przekazuje token frpc wyłącznie przez środowisko procesu.
 - Brama ignoruje od klienta nagłówki adresu (`X-Forwarded-*`, `X-Real-IP`, `Forwarded`) i sama ustawia `X-Forwarded-For/Proto/Host`.
 - Plugin frps dopuszcza tylko proxy `tcp`, a grupę, klucz grupy i port zawsze nadpisuje wartościami serwisu z tokenu. Pozostałe pola są sprawdzane z białą listą.
-- Certyfikaty w locie dla tras wildcard (`*.example.com`): tylko dla hostów z trasą i najwyżej 10 nowych subdomen na godzinę, żeby nie wyczerpać limitu Let's Encrypt.
+- Trasa wildcard (`*.example.com`) sama nie daje certyfikatów: nazwy wskazuje `--tls-name a.example.com` (można powtórzyć). Certyfikaty w locie dla dowolnej subdomeny to jawny wybór `--tls-on-demand` z limitem 10 nowych nazw na godzinę, żeby nie wyczerpać limitu Let's Encrypt.
 - Posiadacz tokenu jest zaufanym operatorem swojego serwisu: zmodyfikowany klient może wyłączyć health check, ale szkodzi tylko własnemu serwisowi.
 
 ## Rozwój SDK

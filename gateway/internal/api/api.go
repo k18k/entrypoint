@@ -43,15 +43,17 @@ type ReplicaInfo struct {
 }
 
 type RouteInfo struct {
-	ID                    string `json:"id"`
-	Host                  string `json:"host"`
-	Prefix                string `json:"prefix"`
-	Service               string `json:"service,omitempty"`
-	Upstream              string `json:"upstream,omitempty"`
-	StripPrefix           bool   `json:"stripPrefix,omitempty"`
-	MaxBodyBytes          int64  `json:"maxBodyBytes"`
-	ResponseHeaderTimeout int    `json:"responseHeaderTimeout"`
-	ACME                  string `json:"acme,omitempty"`
+	ID                    string   `json:"id"`
+	Host                  string   `json:"host"`
+	Prefix                string   `json:"prefix"`
+	Service               string   `json:"service,omitempty"`
+	Upstream              string   `json:"upstream,omitempty"`
+	StripPrefix           bool     `json:"stripPrefix,omitempty"`
+	MaxBodyBytes          int64    `json:"maxBodyBytes"`
+	ResponseHeaderTimeout int      `json:"responseHeaderTimeout"`
+	ACME                  string   `json:"acme,omitempty"`
+	TLSNames              []string `json:"tlsNames,omitempty"`
+	TLSOnDemand           bool     `json:"tlsOnDemand,omitempty"`
 }
 
 type TokenCreated struct {
@@ -116,15 +118,17 @@ type ServiceAdd struct {
 }
 
 type RouteAdd struct {
-	Host                  string `json:"host"`
-	Prefix                string `json:"prefix"`
-	Service               string `json:"service,omitempty"`
-	Upstream              string `json:"upstream,omitempty"`
-	StripPrefix           bool   `json:"stripPrefix,omitempty"`
-	MaxBodyBytes          int64  `json:"maxBodyBytes,omitempty"`
-	ResponseHeaderTimeout int    `json:"responseHeaderTimeout,omitempty"`
-	ACME                  string `json:"acme,omitempty"`
-	BaseRev               *int64 `json:"baseRev,omitempty"`
+	Host                  string   `json:"host"`
+	Prefix                string   `json:"prefix"`
+	Service               string   `json:"service,omitempty"`
+	Upstream              string   `json:"upstream,omitempty"`
+	StripPrefix           bool     `json:"stripPrefix,omitempty"`
+	MaxBodyBytes          int64    `json:"maxBodyBytes,omitempty"`
+	ResponseHeaderTimeout int      `json:"responseHeaderTimeout,omitempty"`
+	ACME                  string   `json:"acme,omitempty"`
+	TLSNames              []string `json:"tlsNames,omitempty"`
+	TLSOnDemand           bool     `json:"tlsOnDemand,omitempty"`
+	BaseRev               *int64   `json:"baseRev,omitempty"`
 }
 
 type TokenCreate struct {

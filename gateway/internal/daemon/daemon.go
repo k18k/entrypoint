@@ -51,7 +51,7 @@ func New(cfg config.Config, log *slog.Logger) (*Daemon, error) {
 		frps:  frpsapi.New(cfg.FrpsAPI, cfg.FrpsAPIPasswordFile()),
 		opts:  render.OptionsFrom(cfg),
 	}
-	d.authz = authz.New(log.With("komponent", "plugin"), d.frps, cfg.Limits.FailedLoginsPerMinute, cfg.Limits.OnDemandCertsPerHour, d.recordLogin)
+	d.authz = authz.New(log.With("komponent", "plugin"), d.frps, cfg.Limits, time.Duration(cfg.HeartbeatTimeout+5)*time.Second, d.recordLogin)
 	return d, nil
 }
 
@@ -146,17 +146,7 @@ func (d *Daemon) hostsForRevision(ctx context.Context, num int64) []string {
 	return hostsOf(r.Spec)
 }
 
-func hostsOf(s *spec.Spec) []string {
-	var hs []string
-	seen := map[string]bool{}
-	for _, r := range s.Routes {
-		if !seen[r.Host] {
-			seen[r.Host] = true
-			hs = append(hs, r.Host)
-		}
-	}
-	return hs
-}
+func hostsOf(s *spec.Spec) []string { return s.CertHosts() }
 
 func (d *Daemon) bootstrap(ctx context.Context) error {
 	head, err := d.st.Head(ctx)

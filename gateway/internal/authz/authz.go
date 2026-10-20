@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/k18k/entrypoint/gateway/internal/config"
 	"github.com/k18k/entrypoint/gateway/internal/frpsapi"
 	"github.com/k18k/entrypoint/gateway/internal/render"
 	"github.com/k18k/entrypoint/gateway/internal/token"
@@ -22,12 +23,13 @@ import (
 
 // Kody odrzuceń przekazywane do frpc. Konektor rozpoznaje je po prefiksie.
 const (
-	ReasonUnknown     = "ep:unknown_token"
-	ReasonRevoked     = "ep:revoked"
-	ReasonRateLimited = "ep:rate_limited"
-	ReasonForbidden   = "ep:forbidden"
-	ReasonLimit       = "ep:replica_limit"
-	ReasonUnavailable = "ep:unavailable"
+	ReasonUnknown      = "ep:unknown_token"
+	ReasonRevoked      = "ep:revoked"
+	ReasonRateLimited  = "ep:rate_limited"
+	ReasonForbidden    = "ep:forbidden"
+	ReasonLimit        = "ep:replica_limit"
+	ReasonUnavailable  = "ep:unavailable"
+	ReasonSessionLimit = "ep:session_limit"
 )
 
 type state struct {
@@ -44,19 +46,30 @@ type Server struct {
 	st       atomic.Pointer[state]
 	log      *slog.Logger
 	frps     *frpsapi.Client
-	limiter  *failLimiter
+	limiter  *failLimiter // failed logins per IP
 	onDemand *nameLimiter
-	record   LoginRecorder
-	mu       sync.Mutex // serializuje podmiany snapshotu
+	// Per-token limits, also for valid tokens: login rate, live sessions, proxy registrations.
+	loginRate   *failLimiter
+	proxyRate   *failLimiter
+	sessions    *sessionTracker
+	maxSessions int
+	record      LoginRecorder
+	mu          sync.Mutex // serializuje podmiany snapshotu
 }
 
-func New(log *slog.Logger, frps *frpsapi.Client, failedPerMinute, onDemandPerHour int, rec LoginRecorder) *Server {
+// New creates the plugin. sessionWindow is how long a session counts as alive after its last
+// Ping (frps drops sessions without Ping after heartbeatTimeout).
+func New(log *slog.Logger, frps *frpsapi.Client, l config.Limits, sessionWindow time.Duration, rec LoginRecorder) *Server {
 	s := &Server{
-		log:      log,
-		frps:     frps,
-		limiter:  newFailLimiter(failedPerMinute, time.Minute),
-		onDemand: newNameLimiter(onDemandPerHour, time.Hour),
-		record:   rec,
+		log:         log,
+		frps:        frps,
+		limiter:     newFailLimiter(l.FailedLoginsPerMinute, time.Minute),
+		loginRate:   newFailLimiter(l.LoginsPerTokenPerMinute, time.Minute),
+		proxyRate:   newFailLimiter(l.ProxyOpsPerTokenPerMinute, time.Minute),
+		sessions:    &sessionTracker{window: sessionWindow, seen: map[string]map[string]time.Time{}},
+		maxSessions: l.SessionsPerToken,
+		onDemand:    newNameLimiter(l.OnDemandCertsPerHour, time.Hour),
+		record:      rec,
 	}
 	s.st.Store(&state{snap: render.AuthzSnapshot{Services: map[string]render.AuthzService{}, Tokens: map[string]render.AuthzToken{}}, revoked: map[string]bool{}, hosts: map[string]bool{}})
 	return s
@@ -221,6 +234,15 @@ func (s *Server) login(raw json.RawMessage) response {
 		}
 		return reject(ReasonUnknown + " nieznany token")
 	}
+	if s.loginRate.blocked(id) {
+		s.log.Warn("logowanie tunelu odrzucone: limit logowań tokenu", "ip", ip, "token_id", id)
+		return reject(ReasonRateLimited + " zbyt wiele logowań tego tokenu, spróbuj później")
+	}
+	s.loginRate.fail(id)
+	if s.maxSessions > 0 && s.sessions.count(id) >= s.maxSessions {
+		s.log.Warn("logowanie tunelu odrzucone: limit sesji tokenu", "ip", ip, "token_id", id)
+		return reject(fmt.Sprintf("%s limit %d jednoczesnych sesji tokenu", ReasonSessionLimit, s.maxSessions))
+	}
 	var fps []string
 	if v := c.Metas["ca"]; v != "" {
 		fps = strings.Split(v, ",")
@@ -278,6 +300,11 @@ func (s *Server) newProxy(ctx context.Context, raw json.RawMessage) response {
 		s.log.Warn("rejestracja proxy odrzucona", "token_id", id, "proxy", c.ProxyName, "powod", why)
 		return reject(why)
 	}
+	if s.proxyRate.blocked(id) {
+		s.log.Warn("rejestracja proxy odrzucona: limit operacji tokenu", "token_id", id, "proxy", c.ProxyName)
+		return reject(ReasonRateLimited + " zbyt wiele rejestracji proxy tego tokenu")
+	}
+	s.proxyRate.fail(id)
 	deny := func(msg string) response {
 		s.log.Warn("rejestracja proxy odrzucona", "token_id", id, "proxy", c.ProxyName, "powod", msg)
 		return reject(ReasonForbidden + " " + msg)
@@ -333,6 +360,7 @@ func (s *Server) ping(raw json.RawMessage) response {
 		s.log.Warn("sesja tunelu odrzucona przy heartbeat", "token_id", id, "powod", why)
 		return reject(why + " sesja nieważna")
 	}
+	s.sessions.touch(id, c.User.RunID)
 	return response{Unchange: true}
 }
 
@@ -435,4 +463,39 @@ func (l *nameLimiter) allow(name string) bool {
 	}
 	l.seen[name] = now
 	return true
+}
+
+// sessionTracker counts live sessions per token: a session (frps run id) is alive while it
+// keeps sending Ping. shortcut: a session counts only after its first Ping (~10 s), so a burst
+// of logins is bounded by the login rate limit, not this one.
+type sessionTracker struct {
+	mu     sync.Mutex
+	window time.Duration
+	seen   map[string]map[string]time.Time
+}
+
+func (t *sessionTracker) touch(token, run string) {
+	if run == "" {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.seen[token] == nil {
+		t.seen[token] = map[string]time.Time{}
+	}
+	t.seen[token][run] = time.Now()
+}
+
+func (t *sessionTracker) count(token string) int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	n := 0
+	for run, at := range t.seen[token] {
+		if time.Since(at) > t.window {
+			delete(t.seen[token], run)
+			continue
+		}
+		n++
+	}
+	return n
 }
