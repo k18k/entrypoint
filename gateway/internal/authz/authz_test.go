@@ -123,3 +123,12 @@ func TestPerTokenLimits(t *testing.T) {
 		t.Fatalf("login rate not enforced: %+v", last)
 	}
 }
+
+func TestPrintable(t *testing.T) {
+	if got := printable("host\x1b[2J\nname"); got != "host[2Jname" {
+		t.Fatalf("%q", got)
+	}
+	if len(printable(strings.Repeat("a", 500))) != 64 {
+		t.Fatal("not capped")
+	}
+}

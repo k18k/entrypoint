@@ -278,6 +278,9 @@ func extract(tr *tar.Reader, dest string) error {
 			return fmt.Errorf("niedozwolona ścieżka w archiwum: %s", h.Name)
 		}
 		p := filepath.Join(dest, name)
+		if !strings.HasPrefix(p, filepath.Clean(dest)+string(filepath.Separator)) {
+			return fmt.Errorf("ścieżka poza katalogiem docelowym: %s", h.Name)
+		}
 		switch h.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(p, 0o700); err != nil {

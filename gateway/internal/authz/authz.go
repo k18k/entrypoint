@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/k18k/entrypoint/gateway/internal/config"
 	"github.com/k18k/entrypoint/gateway/internal/frpsapi"
@@ -249,7 +250,7 @@ func (s *Server) login(raw json.RawMessage) response {
 	}
 	s.log.Info("logowanie tunelu", "ip", ip, "token_id", id, "hostname", c.Hostname)
 	if s.record != nil {
-		go s.record(id, ip, c.Hostname, c.Version, fps)
+		go s.record(id, ip, printable(c.Hostname), printable(c.Version), fps)
 	}
 	return response{Unchange: true}
 }
@@ -498,4 +499,19 @@ func (t *sessionTracker) count(token string) int {
 		n++
 	}
 	return n
+}
+
+// printable keeps client-reported strings safe to store and print in an admin's terminal:
+// control characters (including ANSI escapes) are dropped and the length is capped.
+func printable(v string) string {
+	out := make([]rune, 0, len(v))
+	for _, r := range v {
+		if unicode.IsPrint(r) {
+			out = append(out, r)
+		}
+		if len(out) == 64 {
+			break
+		}
+	}
+	return string(out)
 }
