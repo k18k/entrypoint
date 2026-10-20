@@ -43,7 +43,9 @@ jobs:
 
       - name: Run Strix
         env:
-          STRIX_LLM: openrouter/deepseek/deepseek-v4-flash-0731
+          STRIX_LLM: openrouter/deepseek/deepseek-v4.1-flash
+          # Pin the OpenRouter endpoint: InferenceNet, fp8, no fallback to other providers.
+          LLM_EXTRA_BODY: '{"provider":{"only":["inference-net/fp8"],"allow_fallbacks":false}}'
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           # Inputs go through env, never interpolated into the script.
           EXTRA_URL: ${{ inputs.url }}
