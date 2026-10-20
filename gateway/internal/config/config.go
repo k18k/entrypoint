@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -131,6 +133,19 @@ func (c Config) Check() error {
 		return errors.New("niepoprawny tunnelPort")
 	case c.PortPool.Start <= 1024 || c.PortPool.End > 65535 || c.PortPool.Start > c.PortPool.End:
 		return errors.New("niepoprawna pula portów")
+	}
+	// These values end up in root-owned systemd units or are executed, so they must be
+	// plain addresses and absolute paths (no unit-file syntax, e.g. from a restored backup).
+	for name, v := range map[string]string{"pluginListen": c.PluginListen, "frpsAPI": c.FrpsAPI} {
+		ap, err := netip.ParseAddrPort(v)
+		if err != nil || !ap.Addr().IsLoopback() {
+			return fmt.Errorf("invalid %s %q: expected a loopback address:port", name, v)
+		}
+	}
+	for name, v := range map[string]string{"dataDir": c.DataDir, "apiSocket": c.APISocket, "caddyAdminSocket": c.CaddyAdminSocket, "caddyBin": c.CaddyBin} {
+		if !filepath.IsAbs(v) || filepath.Clean(v) != v || strings.ContainsFunc(v, func(r rune) bool { return r < 0x20 || r == 0x7f || r == ' ' }) {
+			return fmt.Errorf("invalid %s %q: expected a clean absolute path", name, v)
+		}
 	}
 	return nil
 }

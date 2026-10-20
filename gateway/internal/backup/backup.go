@@ -203,9 +203,7 @@ func Restore(ctx context.Context, cfgPath, password string, r io.Reader, out io.
 	if err != nil {
 		return &m, 0, fmt.Errorf("konfiguracja w backupie: %w", err)
 	}
-	// Adresy IP są własnością maszyny, nie backupu.
-	bcfg.PublicIPs = cur.PublicIPs
-	bcfg.DataDir = cur.DataDir
+	pinHostFields(&bcfg, cur)
 
 	fmt.Fprintln(out, "Zatrzymuję usługi...")
 	_ = exec.Command("systemctl", "stop", "entrypoint-frps.service", "entrypointd.service", "entrypoint-caddy.service").Run()
@@ -369,4 +367,18 @@ func fixOwnership(cfg config.Config) error {
 		}
 	}
 	return nil
+}
+
+// pinHostFields keeps machine-specific settings from the current host, never from the
+// archive: they end up in root-owned systemd units or are executed, so a crafted backup
+// must not be able to change them.
+func pinHostFields(b *config.Config, cur config.Config) {
+	b.PublicIPs = cur.PublicIPs
+	b.DataDir = cur.DataDir
+	b.APISocket = cur.APISocket
+	b.PluginListen = cur.PluginListen
+	b.CaddyAdminSocket = cur.CaddyAdminSocket
+	b.FrpsAPI = cur.FrpsAPI
+	b.CaddyBin = cur.CaddyBin
+	b.Testing = cur.Testing
 }

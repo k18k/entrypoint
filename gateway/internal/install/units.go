@@ -144,6 +144,13 @@ ExecStart=/bin/systemctl try-restart entrypoint-frps.service
 }
 
 func writeUnits(cfg config.Config, configPath string) error {
+	// Defense in depth: no interpolated value may carry unit-file syntax.
+	if err := cfg.Check(); err != nil {
+		return err
+	}
+	if !filepath.IsAbs(configPath) || strings.ContainsAny(configPath, "\n\r") {
+		return fmt.Errorf("invalid config path %q", configPath)
+	}
 	for name, body := range units(cfg, configPath) {
 		if err := os.WriteFile(filepath.Join(unitDir, name), []byte(body), 0o644); err != nil {
 			return err
