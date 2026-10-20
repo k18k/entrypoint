@@ -43,7 +43,7 @@ function handler(req, res) {
     case "/whoami":
       return json(res, 200, { replica: REPLICA, pid: process.pid, headers: req.headers });
     case "/slow":
-      return setTimeout(() => res.end(`ok ${REPLICA}`), Number(url.searchParams.get("ms") ?? 1000));
+      return setTimeout(() => res.end(`ok ${REPLICA}`), Math.min(Number(url.searchParams.get("ms") ?? 1000), 60_000));
     case "/upload": {
       const h = crypto.createHash("sha256");
       let n = 0;

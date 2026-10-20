@@ -54,7 +54,12 @@ export function connectorDirs(): string[] {
   return [join(PKG_ROOT, "bin"), join(cache, "entrypoint", version)];
 }
 
+// Binaries come only from GitHub releases over HTTPS; integrity is checked by SHA256 below.
+const ALLOWED_PREFIX = "https://github.com/";
+
 async function download(asset: Asset, dest: string): Promise<void> {
+  if (!asset.url.startsWith(ALLOWED_PREFIX))
+    throw new Error(`niedozwolony adres pobierania: ${asset.url}`);
   const res = await fetch(asset.url, { redirect: "follow" });
   if (!res.ok) throw new Error(`pobieranie ${asset.url}: HTTP ${res.status}`);
   const buf = Buffer.from(await res.arrayBuffer());

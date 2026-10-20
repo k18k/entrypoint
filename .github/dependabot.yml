@@ -1,0 +1,15 @@
+# Keeps pinned action SHAs and dependencies current (weekly, grouped).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    groups: { actions: { patterns: ["*"] } }
+  - package-ecosystem: gomod
+    directories: [/gateway, /e2e]
+    schedule: { interval: weekly }
+    groups: { go: { patterns: ["*"] } }
+  - package-ecosystem: npm
+    directory: /sdk/node
+    schedule: { interval: weekly }
+    groups: { npm: { patterns: ["*"] } }

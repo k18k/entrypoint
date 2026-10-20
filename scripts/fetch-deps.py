@@ -22,6 +22,9 @@ WANTED = {"caddy": ["caddy"], "frp": ["frps", "frpc"]}
 
 
 def fetch(url, sha256):
+    # Only official release downloads over HTTPS; integrity is checked by SHA256 below.
+    if not url.startswith("https://github.com/"):
+        sys.exit(f"niedozwolony adres pobierania: {url}")
     os.makedirs(CACHE, exist_ok=True)
     path = os.path.join(CACHE, url.rsplit("/", 1)[1])
     if os.path.exists(path):
