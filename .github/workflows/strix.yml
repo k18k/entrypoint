@@ -1,0 +1,66 @@
+name: Strix security scan
+
+# Manual only, and only k18k may run it (others' dispatches are skipped).
+# Requires repository secret LLM_API_KEY (OpenRouter key; set a $5 credit limit on the key itself
+# as a hard backstop to --max-budget, which is a best-effort estimate).
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Optional extra target URL (e.g. https://app.mwdentry.stream)"
+        type: string
+        default: ""
+      scan_mode:
+        description: "Scan depth"
+        type: choice
+        options: [quick, standard, deep]
+        default: standard
+
+permissions:
+  contents: read
+
+concurrency:
+  group: strix
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    if: github.triggering_actor == 'k18k'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Strix (pinned)
+        env:
+          VERSION: "1.7.0"
+        run: |
+          curl -sSL https://strix.ai/install | bash
+          echo "$HOME/.strix/bin" >> "$GITHUB_PATH"
+
+      - name: Run Strix
+        env:
+          STRIX_LLM: openrouter/deepseek/deepseek-v4-flash-0731
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          # Inputs go through env, never interpolated into the script.
+          EXTRA_URL: ${{ inputs.url }}
+          SCAN_MODE: ${{ inputs.scan_mode }}
+        run: |
+          targets=(-t ./)
+          if [ -n "$EXTRA_URL" ]; then
+            [[ "$EXTRA_URL" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]+)?(/[^[:space:]]*)?$ ]] || { echo "invalid url"; exit 1; }
+            targets+=(-t "$EXTRA_URL")
+          fi
+          strix -n "${targets[@]}" --scan-mode "$SCAN_MODE" --scope-mode full --max-budget 5
+
+      - name: Report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: strix-report
+          path: strix_runs/
+          retention-days: 30
+          if-no-files-found: ignore
