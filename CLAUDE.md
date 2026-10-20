@@ -1,16 +1,18 @@
 # entrypoint
 
-Samodzielnie hostowana brama do publikowania usług.
-Źródło prawdy: docs/specyfikacja.md. Wyniki eksperymentów: docs/wyniki.md.
+Self-hosted gateway for publishing services.
+Source of truth: docs/specyfikacja.md. Experiment results: docs/wyniki.md.
 
-## Zasady
-- Zakres bieżącej pracy to wersja wskazana w zadaniu; bez funkcji z późniejszych wersji.
-- Monorepo: gateway/ (Go: entrypointd, CLI, konektor), sdk/node (TypeScript),
+## Rules
+- Language: English for everything new (code comments, messages, docs, commits, issues).
+  Existing Polish content is translated when touched.
+- Scope of current work is the version named in the task; no features from later versions.
+- Monorepo: gateway/ (Go: entrypointd, CLI, connector), sdk/node (TypeScript),
   e2e/ (Docker Compose), scripts/install.sh.
-- Caddy i frp jako oficjalne binarki w wersjach z versions.json.
-- Architektura: wariant B (grupy frp). Zmiana architektury tylko po opisaniu
-  problemu i mojej zgodzie.
-- Każda funkcja kończy się zielonym testem e2e; `make e2e` musi przechodzić przed commitem.
-- Sekrety nigdy w logach, błędach ani wyjściu poleceń. Klient tunelu zawsze weryfikuje CA.
-- Małe commity z opisem po polsku; nie pushuj bez pytania.
-- Przed jakąkolwiek operacją na VPS zapytaj mnie o zgodę.
+- Caddy and frp as official binaries at the versions in versions.json.
+- Architecture: variant B (frp groups). Architecture changes only after describing
+  the problem and getting my approval.
+- Every feature ends with a green e2e test; `make e2e` must pass before a commit.
+- Secrets never in logs, errors or command output. The tunnel client always verifies the CA.
+- Small commits with English messages; don't push without asking.
+- Ask for my approval before any operation on a VPS.
