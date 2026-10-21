@@ -15,4 +15,5 @@ Source of truth: docs/specyfikacja.md. Experiment results: docs/wyniki.md.
 - Every feature ends with a green e2e test; `make e2e` must pass before a commit.
 - Secrets never in logs, errors or command output. The tunnel client always verifies the CA.
 - Small commits with English messages; don't push without asking.
+- Every user-visible change adds a changeset (`npm run changeset`); releases are cut with `npm run version`.
 - Ask for my approval before any operation on a VPS.

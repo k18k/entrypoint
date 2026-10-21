@@ -65,9 +65,6 @@ def assets():
     files.append((os.path.join(ROOT, "scripts", "install.sh"), "install.sh"))
     for _, _, src, name in binaries():
         files.append((src, name))
-    for name in os.listdir(os.path.join(ROOT, "dist", "npm")):
-        if name == f"k18k-entrypoint-{VERSION}.tgz":
-            files.append((os.path.join(ROOT, "dist", "npm", name), name))
     sums = []
     for src, name in files:
         shutil.copy2(src, os.path.join(dest, name))

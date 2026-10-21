@@ -1,27 +1,24 @@
-# @k18k/entrypoint
+# @k18k/entrypoint-ts
 
 SDK Node.js dla [Entrypoint](https://github.com/k18k/entrypoint): wystawia lokalną aplikację przez tunel do bramy Entrypoint, z wieloma replikami i drainem.
 
-## Instalacja
-
-Z gita (bez rejestru):
+## Installation
 
 ```bash
-npm install github:k18k/entrypoint-ts#v0.1.1
+npm install @k18k/entrypoint-ts
 ```
 
-Z GitHub Packages:
+The same package is published to GitHub Packages. GitHub requires a token with `read:packages` even for public packages: run `gh auth refresh -s read:packages` once, or use a classic personal access token with that scope.
 
 ```bash
 echo "@k18k:registry=https://npm.pkg.github.com" >> .npmrc
-npm install @k18k/entrypoint
+echo "//npm.pkg.github.com/:_authToken=\${GITHUB_TOKEN}" >> .npmrc
+GITHUB_TOKEN=$(gh auth token) npm install @k18k/entrypoint-ts
 ```
-
-GitHub Packages wymaga zalogowania tokenem z uprawnieniem `read:packages`, także dla pakietów publicznych.
 
 Przy instalacji SDK pobiera z [wydania Entrypoint](https://github.com/k18k/entrypoint/releases) konektor i oficjalne frpc dla bieżącej platformy (Linux x64/arm64, macOS x64/arm64, Windows x64) i sprawdza ich sumy SHA256. Bez dostępu do sieci przy instalacji (albo z `--ignore-scripts`) pobranie nastąpi przy pierwszym `tunnel()`, albo ręcznie: `npx entrypoint-tunnel install-connector`. Własną binarkę konektora wskazuje `ENTRYPOINT_CONNECTOR`.
 
-Nowsze npm (11.x) domyślnie nie uruchamia skryptów instalacyjnych zależności i pokazuje `npm warn install-scripts`. Wtedy SDK pobierze konektor przy pierwszym `expose()`/`tunnel()`. Żeby pobierał się już przy instalacji: `npm install-scripts approve @k18k/entrypoint`.
+Nowsze npm (11.x) domyślnie nie uruchamia skryptów instalacyjnych zależności i pokazuje `npm warn install-scripts`. Wtedy SDK pobierze konektor przy pierwszym `expose()`/`tunnel()`. Żeby pobierał się już przy instalacji: `npm install-scripts approve @k18k/entrypoint-ts`.
 
 ## Użycie
 
@@ -30,7 +27,7 @@ Pakiet połączenia `ENTRYPOINT_CONNECT` wydaje brama: `sudo entrypoint token cr
 Adapter `node:http`: pełny drain (Connection: close, zamknięcie SSE i WebSocketów kodem 1001). Działa z każdym handlerem `(req, res)`, także z aplikacją Express.
 
 ```js
-import { expose } from "@k18k/entrypoint/http";
+import { expose } from "@k18k/entrypoint-ts/http";
 
 const conn = await expose((req, res) => res.end("ok"), {
   service: "api",
@@ -41,7 +38,7 @@ const conn = await expose((req, res) => res.end("ok"), {
 Kontrakt bazowy: tunel do adresu, na którym aplikacja już słucha.
 
 ```js
-import { tunnel } from "@k18k/entrypoint";
+import { tunnel } from "@k18k/entrypoint-ts";
 
 const t = await tunnel({
   service: "api",

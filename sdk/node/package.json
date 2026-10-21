@@ -1,5 +1,5 @@
 {
-  "name": "@k18k/entrypoint",
+  "name": "@k18k/entrypoint-ts",
   "version": "0.1.1",
   "description": "SDK Entrypoint: tunel z aplikacji do bramy Entrypoint (kontrakt bazowy i adapter node:http)",
   "homepage": "https://github.com/k18k/entrypoint",
@@ -32,7 +32,7 @@
     }
   },
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public"
   },
   "scripts": {
     "build": "tsdown",

@@ -104,7 +104,7 @@ func TestSDK_KillParent(t *testing.T) {
 	result(t, "%s", strings.Join(lines, "; "))
 }
 
-// CLI SDK (npx @k18k/entrypoint tunnel) dla aplikacji w dowolnym języku; SIGTERM uruchamia drain.
+// CLI SDK (npx @k18k/entrypoint-ts tunnel) dla aplikacji w dowolnym języku; SIGTERM uruchamia drain.
 func TestSDK_CLI(t *testing.T) {
 	e := apiSetup(t)
 	_, connect := e.Token("api")

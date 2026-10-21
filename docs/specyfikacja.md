@@ -209,7 +209,7 @@ Port tunelu korzysta z prywatnego CA (sekcja 6), a nie z ACME.
 Podstawowy kontrakt to tunel do istniejącego lokalnego adresu. Aplikacja słucha jak zwykle, a SDK wystawia ten adres przez tunel. Adaptery frameworków dają silniejsze gwarancje drainu (sekcja 7).
 
 ```ts
-import { tunnel } from "@k18k/entrypoint"
+import { tunnel } from "@k18k/entrypoint-ts"
 
 const t = await tunnel({
   connect: process.env.ENTRYPOINT_CONNECT, // nazwa bramy, port, CA, token
@@ -224,14 +224,14 @@ process.on("SIGTERM", () => t.drain({ timeoutMs: 30_000 }))
 To samo z linii poleceń, dla aplikacji w dowolnym języku:
 
 ```bash
-npx @k18k/entrypoint tunnel --service api --upstream http://127.0.0.1:3000
+npx @k18k/entrypoint-ts tunnel --service api --upstream http://127.0.0.1:3000
 ```
 
 | Adapter | Wersja | Co robi |
 | --- | --- | --- |
-| `@k18k/entrypoint/http` | v0.1 | `expose(handler)` (dowolny handler `(req, res)`, także aplikacja Express) uruchamia serwer na `127.0.0.1:0` i tunel; przy drainie przestaje przyjmować połączenia, wysyła `Connection: close`, zamyka WebSockety kodem 1001 |
-| `@k18k/entrypoint/fastify` | v0.2.0 | Czeka na `ready()` i używa serwera Fastify, z tym samym drainem |
-| `@k18k/entrypoint/hono` | v0.2.0 | Uruchamia handler przez adapter Node dla Hono, z tym samym drainem |
+| `@k18k/entrypoint-ts/http` | v0.1 | `expose(handler)` (dowolny handler `(req, res)`, także aplikacja Express) uruchamia serwer na `127.0.0.1:0` i tunel; przy drainie przestaje przyjmować połączenia, wysyła `Connection: close`, zamyka WebSockety kodem 1001 |
+| `@k18k/entrypoint-ts/fastify` | v0.2.0 | Czeka na `ready()` i używa serwera Fastify, z tym samym drainem |
+| `@k18k/entrypoint-ts/hono` | v0.2.0 | Uruchamia handler przez adapter Node dla Hono, z tym samym drainem |
 
 Każdy adapter ma testy w CI dla wspieranych zakresów wersji frameworka i Node.js. Bun i Deno działają przez kontrakt bazowy do czasu dodania testów.
 

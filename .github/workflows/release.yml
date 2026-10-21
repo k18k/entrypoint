@@ -1,10 +1,11 @@
 name: Release
 
-# Wydanie z tagu v<wersja> (wersja musi zgadzać się z versions.json i install.sh):
-#  1. pliki wydania GitHub: brama (linux_amd64), konektor i frpc dla wszystkich platform, SDK, SHA256SUMS
-#  2. SDK w GitHub Packages (npm.pkg.github.com) jako @k18k/entrypoint
-#  3. SDK do instalacji z gita: npm install github:k18k/entrypoint-ts (repozytorium z gotowym lib/)
-#  4. obraz konektora: ghcr.io/k18k/entrypoint-connector
+# Release from a v<version> tag. Bump the version with `npm run version` (changesets), which
+# keeps package.json, versions.json, install.sh and the SDK in sync; the notes are that
+# version's section of CHANGELOG.md.
+#  1. GitHub release files: gateway (linux_amd64), connector and frpc for all platforms, SHA256SUMS
+#  2. SDK as @k18k/entrypoint-ts on npm (trusted publishing, provenance) and GitHub Packages
+#  3. connector image: ghcr.io/k18k/entrypoint-connector
 on:
   push:
     tags: ["v*"]
@@ -12,6 +13,7 @@ on:
 permissions:
   contents: write
   packages: write
+  id-token: write # npm trusted publishing
 
 jobs:
   release:
@@ -30,38 +32,44 @@ jobs:
           registry-url: "https://npm.pkg.github.com"
           scope: "@k18k"
 
-      - name: Zgodność wersji
+      - name: Version consistency
         id: v
         run: |
           version=$(python3 -c 'import json;print(json.load(open("versions.json"))["entrypoint"])')
           test "${GITHUB_REF_NAME}" = "v${version}" || { echo "tag ${GITHUB_REF_NAME} != v${version}"; exit 1; }
-          grep -q "ENTRYPOINT_VERSION:-${version}}" scripts/install.sh || { echo "install.sh nie wskazuje ${version}"; exit 1; }
+          grep -q "ENTRYPOINT_VERSION:-${version}}" scripts/install.sh || { echo "install.sh does not point to ${version}"; exit 1; }
+          test "$(node -p 'require("./package.json").version')" = "${version}"
           test "$(node -p 'require("./sdk/node/package.json").version')" = "${version}"
-          test -f "docs/release-notes/v${version}.md"
+          awk -v h="## ${version}" '$0 == h {on=1; next} on && /^## / {exit} on' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          test -s "$RUNNER_TEMP/notes.md" || { echo "CHANGELOG.md has no ${version} section"; exit 1; }
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
-      - name: Pliki wydania
+      - name: Release files
         run: make release
 
-      - name: Wydanie GitHub
+      - name: GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${GITHUB_REF_NAME}" dist/release-assets/* \
             --title "Entrypoint ${{ steps.v.outputs.version }}" \
-            --notes-file "docs/release-notes/v${{ steps.v.outputs.version }}.md"
+            --notes-file "$RUNNER_TEMP/notes.md"
 
-      - name: SDK w GitHub Packages
+      - name: SDK to GitHub Packages
         working-directory: sdk/node
         env:
           NODE_AUTH_TOKEN: ${{ github.token }}
-        run: npm publish --ignore-scripts
+        run: npm publish --ignore-scripts --@k18k:registry=https://npm.pkg.github.com
 
-      - name: SDK do instalacji z gita (k18k/entrypoint-ts)
+      # Trusted publishing (OIDC) needs no secret. npm only allows setting it up on an existing
+      # package, so the very first publish uses an NPM_TOKEN secret, which is deleted afterwards.
+      - name: SDK to npm
+        working-directory: sdk/node
         env:
-          DEPLOY_KEY: ${{ secrets.ENTRYPOINT_TS_DEPLOY_KEY }}
-          VERSION: ${{ steps.v.outputs.version }}
-        run: scripts/publish-sdk-git.sh
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then echo "//registry.npmjs.org/:_authToken=\${NPM_TOKEN}" >> "$NPM_CONFIG_USERCONFIG"; fi
+          npm publish --ignore-scripts --provenance --@k18k:registry=https://registry.npmjs.org
 
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -70,7 +78,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      - name: Obraz konektora
+      - name: Connector image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: dist/connector
@@ -83,5 +91,5 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.version=${{ steps.v.outputs.version }}
-            org.opencontainers.image.description=Konektor tunelu Entrypoint (entrypoint-connector + frpc)
+            org.opencontainers.image.description=Entrypoint tunnel connector (entrypoint-connector + frpc)
             org.opencontainers.image.licenses=Apache-2.0

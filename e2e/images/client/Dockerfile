@@ -11,7 +11,7 @@ WORKDIR /app
 COPY e2e/apps/package.json ./
 COPY dist/npm/ /tmp/npm/
 RUN ENTRYPOINT_SKIP_CONNECTOR_DOWNLOAD=1 npm install --no-audit --no-fund --omit=optional \
-      /tmp/npm/k18k-entrypoint-${VERSION}.tgz /tmp/npm/k18k-entrypoint-linux-x64-${VERSION}.tgz ws@8.22.0 \
+      /tmp/npm/k18k-entrypoint-ts-${VERSION}.tgz /tmp/npm/k18k-entrypoint-linux-x64-${VERSION}.tgz ws@8.22.0 \
  && rm -rf /tmp/npm
 COPY e2e/apps/ ./
 CMD ["sleep", "infinity"]

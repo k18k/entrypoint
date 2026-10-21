@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// npx @k18k/entrypoint tunnel --service api --upstream http://127.0.0.1:3000
+// npx @k18k/entrypoint-ts tunnel --service api --upstream http://127.0.0.1:3000
 import { parseArgs } from "node:util";
 import { ensureConnector, tunnel, TunnelError } from "./index.js";
 

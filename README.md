@@ -95,20 +95,20 @@ sudo entrypoint token create --service api      # wypisuje ENTRYPOINT_CONNECT ty
 
 `ENTRYPOINT_CONNECT` zawiera nazwę bramy, port, zaufane CA i token. Przechowuj go jak hasło. Każda replika (albo każda maszyna) może mieć osobny token, który odwołasz niezależnie.
 
-W aplikacji zainstaluj SDK z gita. Przy instalacji SDK pobiera konektor i frpc dla Twojej platformy z wydania i sprawdza ich SHA256:
+In your app, install the SDK from npm:
 
 ```bash
-npm install github:k18k/entrypoint-ts#v0.1.1
+npm install @k18k/entrypoint-ts
 ```
 
-Nowsze npm (11.x) domyślnie nie uruchamia skryptów instalacyjnych zależności i pokazuje `npm warn install-scripts`. Wtedy SDK pobierze konektor przy pierwszym `expose()`/`tunnel()`. Żeby pobierał się już przy instalacji: `npm install-scripts approve @k18k/entrypoint`.
+The same package is in GitHub Packages (`@k18k:registry=https://npm.pkg.github.com` in `.npmrc`; GitHub requires a token with `read:packages` even for public packages).
 
-SDK jest też w GitHub Packages jako `@k18k/entrypoint` (`@k18k:registry=https://npm.pkg.github.com` w `.npmrc`; GitHub wymaga tokenu `read:packages` także dla pakietów publicznych).
+The SDK downloads the connector and frpc for your platform from the matching GitHub release and verifies their SHA256. npm 11 does not run dependency install scripts by default (`npm warn install-scripts`); the SDK then downloads the connector on the first `expose()`/`tunnel()`. To download it at install time: `npm install-scripts approve @k18k/entrypoint-ts`.
 
 **Adapter `node:http` (zalecany).** Daje pełny drain: `Connection: close`, zamknięcie SSE i WebSocketów kodem 1001. Przyjmuje dowolny handler `(req, res)`, więc działa z czystym `node:http` i z aplikacjami frameworków (aplikacja Express, `app.callback()` w Koa).
 
 ```js
-import { expose } from "@k18k/entrypoint/http";
+import { expose } from "@k18k/entrypoint-ts/http";
 
 const handler = (req, res) => {
   if (req.url === "/health") return res.end("ok");
@@ -123,7 +123,7 @@ const conn = await expose(handler, { service: "api", healthCheck: "/health" });
 **Kontrakt bazowy.** Tunel do adresu, na którym aplikacja już słucha:
 
 ```js
-import { tunnel } from "@k18k/entrypoint";
+import { tunnel } from "@k18k/entrypoint-ts";
 
 const t = await tunnel({ service: "api", upstream: "http://127.0.0.1:3000", healthCheck: "/health" });
 process.on("SIGTERM", () => t.drain({ timeoutMs: 30_000 }).then(() => process.exit(0)));
