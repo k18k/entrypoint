@@ -292,15 +292,25 @@ func readPassword(prompt string, twice bool) (string, error) {
 	return string(a), nil
 }
 
-func passwordFrom(file string, twice bool) (string, error) {
+func passwordFrom(file string, creating bool) (string, error) {
+	var pw string
 	if file != "" {
 		b, err := os.ReadFile(file)
 		if err != nil {
 			return "", err
 		}
-		return strings.TrimRight(string(b), "\r\n"), nil
+		pw = strings.TrimRight(string(b), "\r\n")
+	} else {
+		var err error
+		if pw, err = readPassword("Hasło backupu: ", creating); err != nil {
+			return "", err
+		}
 	}
-	return readPassword("Hasło backupu: ", twice)
+	// Enforced for --password-file and ENTRYPOINT_BACKUP_PASSWORD too (Strix vuln-0005).
+	if creating && len(pw) < 12 {
+		return "", errors.New("backup passphrase must be at least 12 characters")
+	}
+	return pw, nil
 }
 
 func cmdBackup(args []string) error {

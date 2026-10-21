@@ -313,7 +313,7 @@ func (s *Spec) Validate(poolStart, poolEnd int) error {
 		} else if p != r.Prefix {
 			add("trasa %s: prefiks nie jest znormalizowany", r.ID)
 		}
-		k := key{r.Host, r.Prefix}
+		k := key{r.Host, strings.ToLower(r.Prefix)} // Caddy matches paths case-insensitively
 		if other, ok := seen[k]; ok {
 			add("konflikt tras: %s%s jest już zajęte przez trasę %s", r.Host, r.Prefix, other)
 		}

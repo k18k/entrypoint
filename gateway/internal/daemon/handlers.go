@@ -418,7 +418,7 @@ func (d *Daemon) hRouteAdd(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		for _, rt := range s.Routes {
-			if rt.Host == host && rt.Prefix == prefix {
+			if rt.Host == host && strings.EqualFold(rt.Prefix, prefix) {
 				return "", badRequest("konflikt tras: %s%s jest już zajęte przez trasę %s", host, prefix, rt.ID)
 			}
 			if rt.Host == host && rt.ACME != req.ACME {

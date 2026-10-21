@@ -123,6 +123,13 @@ func New(o Options) (*Connector, error) {
 	if o.Replica == "" || len(o.Replica) > 32 {
 		return nil, errors.New("nazwa repliki: 1-32 znaki [a-z0-9-]")
 	}
+	// frpc renders its whole config as a Go template, so "{{" in any value we write would be
+	// evaluated (e.g. leak the token env var into the health-check path) — Strix vuln-0004.
+	for name, v := range map[string]string{"--health": o.Health, "--upstream": o.Upstream, "--service": o.Service, "server": o.Bundle.Server} {
+		if strings.Contains(v, "{{") || strings.Contains(v, "}}") {
+			return nil, fmt.Errorf("%s must not contain template delimiters", name)
+		}
+	}
 	if o.DrainTimeout <= 0 {
 		o.DrainTimeout = 30 * time.Second
 	}

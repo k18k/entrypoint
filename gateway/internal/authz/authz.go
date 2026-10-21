@@ -80,7 +80,12 @@ func New(log *slog.Logger, frps *frpsapi.Client, l config.Limits, sessionWindow 
 func (s *Server) Swap(snap render.AuthzSnapshot, revoked map[string]bool, hosts []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Revocations only grow: keep those already in memory, so a snapshot built from a journal
+	// read that raced with a revoke cannot re-authorize the token (Strix vuln-0008).
 	rv := map[string]bool{}
+	for k := range s.st.Load().revoked {
+		rv[k] = true
+	}
 	for k := range revoked {
 		rv[k] = true
 	}

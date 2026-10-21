@@ -321,6 +321,11 @@ func (d *Daemon) rollback(ctx context.Context, rev *store.Revision, cause error)
 	_ = d.st.SetStatus(ctx, rev.Num, store.StatusFailed, cause.Error())
 	last, err := d.st.LastApplied(ctx)
 	if err != nil || last == nil {
+		// Nothing was applied before: authorize nothing rather than keep the failed revision (Strix vuln-0009).
+		empty := &spec.Spec{}
+		if werr := d.writeSnapshot(ctx, render.Authz(0, empty), empty); werr != nil {
+			d.log.Error("przywrócenie pustego snapshotu nie powiodło się", "err", werr)
+		}
 		return fmt.Errorf("%v (brak rewizji do przywrócenia)", cause)
 	}
 	snap := render.Authz(last.Num, last.Spec)

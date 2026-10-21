@@ -51,3 +51,14 @@ func TestValidate(t *testing.T) {
 		}
 	}
 }
+
+// Strix vuln-0007: Caddy matches paths case-insensitively, so /api and /API conflict.
+func TestPrefixConflictIgnoresCase(t *testing.T) {
+	s := &Spec{Routes: []Route{
+		{ID: "r000001", Host: "a.example.com", Prefix: "/api", Upstream: "10.0.0.1:80"},
+		{ID: "r000002", Host: "a.example.com", Prefix: "/API", Upstream: "10.0.0.2:80"},
+	}}
+	if err := s.Validate(20000, 29999); err == nil || !strings.Contains(err.Error(), "konflikt tras") {
+		t.Fatalf("case-variant prefixes accepted: %v", err)
+	}
+}

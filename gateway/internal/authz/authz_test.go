@@ -132,3 +132,16 @@ func TestPrintable(t *testing.T) {
 		t.Fatal("not capped")
 	}
 }
+
+// Strix vuln-0008: a Swap built from a journal read that raced with a revoke must not
+// re-authorize the revoked token.
+func TestSwapKeepsInMemoryRevocations(t *testing.T) {
+	s, full, id := setup(t)
+	snap := s.st.Load().snap // contains the token
+	s.Revoke(id)
+	s.Swap(snap, map[string]bool{}, nil) // stale journal read: no revocations
+	r := call(t, s, "Login", map[string]any{"metas": map[string]string{"token": full}, "client_address": "1.2.3.4:5"})
+	if !r.Reject {
+		t.Fatal("stale Swap re-authorized a revoked token")
+	}
+}
