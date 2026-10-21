@@ -43,39 +43,39 @@ func TestLoginPingRevoke(t *testing.T) {
 	s, full, id := setup(t)
 	login := map[string]any{"metas": map[string]string{"token": full}, "client_address": "1.2.3.4:5"}
 	if r := call(t, s, "Login", login); r.Reject {
-		t.Fatalf("poprawny token odrzucony: %v", r.RejectReason)
+		t.Fatalf("valid token rejected: %v", r.RejectReason)
 	}
 	ping := map[string]any{"user": map[string]any{"metas": map[string]string{"token": full}}}
 	if r := call(t, s, "Ping", ping); r.Reject {
-		t.Fatal("ping odrzucony")
+		t.Fatal("ping rejected")
 	}
 	s.Revoke(id)
 	if r := call(t, s, "Ping", ping); !r.Reject {
-		t.Fatal("ping odwołanego tokenu przyjęty")
+		t.Fatal("ping of a revoked token accepted")
 	}
 	if r := call(t, s, "Login", login); !r.Reject {
-		t.Fatal("login odwołanego tokenu przyjęty")
+		t.Fatal("login of a revoked token accepted")
 	}
-	// Ponowna podmiana snapshotu nie przywraca odwołanego tokenu, jeśli zbiór odwołań go zawiera.
+	// Swapping the snapshot again does not bring back a token that is in the revoked set.
 	s.Swap(render.Authz(2, &spec.Spec{}), map[string]bool{id: true}, nil)
 	if r := call(t, s, "Login", login); !r.Reject {
-		t.Fatal("token po podmianie")
+		t.Fatal("token accepted after swap")
 	}
 }
 
 func TestFailLimit(t *testing.T) {
 	s, full, _ := setup(t)
-	bad := map[string]any{"metas": map[string]string{"token": "ept_000000000000_zle"}, "client_address": "9.9.9.9:1"}
+	bad := map[string]any{"metas": map[string]string{"token": "ept_000000000000_bad"}, "client_address": "9.9.9.9:1"}
 	for i := 0; i < 3; i++ {
 		call(t, s, "Login", bad)
 	}
 	good := map[string]any{"metas": map[string]string{"token": full}, "client_address": "9.9.9.9:2"}
 	if r := call(t, s, "Login", good); !r.Reject {
-		t.Fatal("limit nieudanych logowań nie działa")
+		t.Fatal("failed login limit does not work")
 	}
 	other := map[string]any{"metas": map[string]string{"token": full}, "client_address": "8.8.8.8:2"}
 	if r := call(t, s, "Login", other); r.Reject {
-		t.Fatal("limit dotyka innego adresu")
+		t.Fatal("limit hits a different address")
 	}
 }
 
@@ -87,11 +87,11 @@ func TestAsk(t *testing.T) {
 		return w.Code
 	}
 	if code("a.example.com") != 200 || code("x.w.example.com") != 200 || code("b.example.com") != 403 || code("a.b.w.example.com") != 403 {
-		t.Fatal("zgody TLS")
+		t.Fatal("TLS consent")
 	}
 	code("y.w.example.com")
 	if code("z.w.example.com") != 429 {
-		t.Fatal("limit nowych subdomen")
+		t.Fatal("new subdomain limit")
 	}
 }
 

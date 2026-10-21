@@ -14,7 +14,7 @@ export default defineConfig({
     "typescript/consistent-type-imports": "error",
     "import/no-cycle": "error",
     "unicorn/prefer-node-protocol": "error",
-    // Callbacki .then() reagujące na koniec procesu celowo nic nie zwracają.
+    // The .then() callbacks reacting to process exit deliberately return nothing.
     "promise/always-return": "off",
   },
 });

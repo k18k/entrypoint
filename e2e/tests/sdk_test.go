@@ -1,6 +1,6 @@
 package tests
 
-// Zestaw e2e 9: SDK (kontrakt bazowy i adapter node:http) w macierzy wersji Node.js.
+// e2e suite 9: the SDK (base contract and node:http adapter) across a Node.js version matrix.
 
 import (
 	"context"
@@ -30,7 +30,7 @@ func versions(e *h.Env, c string) string {
 	return strings.TrimSpace(out)
 }
 
-// Kontrakt bazowy i adapter w macierzy: ruch, WebSocket, drain z kodem 1001 (adapter), wyjście procesu.
+// Base contract and adapter in the matrix: traffic, WebSocket, drain with code 1001 (adapter), process exit.
 func TestSDK_Matrix(t *testing.T) {
 	e := apiSetup(t)
 	var lines []string
@@ -59,22 +59,22 @@ func TestSDK_Matrix(t *testing.T) {
 			closeCode := websocket.CloseStatus(rerr)
 			wsAfter := time.Since(t0)
 			cancel()
-			e.Eventually(30*time.Second, 300*time.Millisecond, "koniec drainu", func() error {
+			e.Eventually(30*time.Second, 300*time.Millisecond, "drain finished", func() error {
 				if e.Procs(sc.container, "frpc") > 0 || e.Procs(sc.container, "entrypoint-connector") > 0 {
-					return errors.New("frpc albo konektor działa")
+					return errors.New("frpc or the connector is running")
 				}
 				log, _ := e.Sh(sc.container, "cat "+a.Log)
 				if !strings.Contains(log, `"drained":true`) {
-					return errors.New("drain SDK nie zakończony")
+					return errors.New("SDK drain not finished")
 				}
 				return nil
 			})
-			lines = append(lines, fmt.Sprintf("%s (%s) %s: echo WS %q, zamknięcie WS po %s kodem %d", sc.label, versions(e, sc.container), mode, m, ms(wsAfter), closeCode))
+			lines = append(lines, fmt.Sprintf("%s (%s) %s: WS echo %q, WS closed after %s with code %d", sc.label, versions(e, sc.container), mode, m, ms(wsAfter), closeCode))
 			if mode == "adapter" && closeCode != websocket.StatusGoingAway {
-				t.Errorf("%s: adapter nie zamknął WebSocketu kodem 1001 (%d)", sc.label, closeCode)
+				t.Errorf("%s: the adapter did not close the WebSocket with code 1001 (%d)", sc.label, closeCode)
 			}
 			if mode == "base" && wsAfter < 4*time.Second {
-				t.Errorf("%s: kontrakt bazowy zerwał WebSocket przed drainTimeout (%s)", sc.label, wsAfter)
+				t.Errorf("%s: the base contract dropped the WebSocket before drainTimeout (%s)", sc.label, wsAfter)
 			}
 			e.StopAllApps()
 		}
@@ -82,7 +82,7 @@ func TestSDK_Matrix(t *testing.T) {
 	result(t, "%s", strings.Join(lines, "; "))
 }
 
-// kill -9 procesu rodzica kończy konektor i frpc (kontrakt bazowy i adapter).
+// kill -9 of the parent process ends the connector and frpc (base contract and adapter).
 func TestSDK_KillParent(t *testing.T) {
 	e := apiSetup(t)
 	var lines []string
@@ -91,20 +91,20 @@ func TestSDK_KillParent(t *testing.T) {
 		a := e.StartApp(h.AppOptions{Container: h.ClientA, Connect: connect, Replica: "k" + mode, Mode: mode, Wait: true})
 		t0 := time.Now()
 		a.Kill9()
-		e.Eventually(10*time.Second, 100*time.Millisecond, "koniec konektora i frpc", func() error {
+		e.Eventually(10*time.Second, 100*time.Millisecond, "connector and frpc exit", func() error {
 			if n := e.Procs(h.ClientA, "entrypoint-connector") + e.Procs(h.ClientA, "frpc"); n > 0 {
-				return fmt.Errorf("procesów: %d", n)
+				return fmt.Errorf("processes: %d", n)
 			}
 			return nil
 		})
 		gone := time.Since(t0)
 		e.WaitReplicas("api", nil, 10*time.Second)
-		lines = append(lines, fmt.Sprintf("%s: konektor i frpc zakończone po %s, replika zniknęła z grupy", mode, ms(gone)))
+		lines = append(lines, fmt.Sprintf("%s: connector and frpc exited after %s, the replica left the group", mode, ms(gone)))
 	}
 	result(t, "%s", strings.Join(lines, "; "))
 }
 
-// CLI SDK (npx @k18k/entrypoint-ts tunnel) dla aplikacji w dowolnym języku; SIGTERM uruchamia drain.
+// SDK CLI (npx @k18k/entrypoint-ts tunnel) for apps in any language; SIGTERM starts the drain.
 func TestSDK_CLI(t *testing.T) {
 	e := apiSetup(t)
 	_, connect := e.Token("api")
@@ -118,17 +118,17 @@ func TestSDK_CLI(t *testing.T) {
 	e.MustSh(h.ClientA, `pkill -TERM -f "[e]ntrypoint-tunnel tunnel"`)
 	e.WaitReplicas("api", nil, 10*time.Second)
 	withdrawn := time.Since(t0)
-	e.Eventually(20*time.Second, 200*time.Millisecond, "koniec CLI", func() error {
+	e.Eventually(20*time.Second, 200*time.Millisecond, "CLI exit", func() error {
 		if e.Procs(h.ClientA, "frpc") > 0 || e.Procs(h.ClientA, "entrypoint-connector") > 0 {
-			return errors.New("działa")
+			return errors.New("running")
 		}
 		return nil
 	})
 	done := time.Since(t0)
 	log, _ := e.Sh(h.ClientA, "cat /tmp/cli.log")
-	result(t, "CLI: odpowiedź %s; SIGTERM: wycofanie po %s, koniec po %s; log: %s", strings.TrimSpace(body), ms(withdrawn), ms(done), strings.ReplaceAll(firstLines(log, 3), "\n", " | "))
+	result(t, "CLI: response %s; SIGTERM: withdrawn after %s, exited after %s; log: %s", strings.TrimSpace(body), ms(withdrawn), ms(done), strings.ReplaceAll(firstLines(log, 3), "\n", " | "))
 	if replicaOf(body) != "cli" || done > 10*time.Second {
-		t.Fatal("CLI SDK nie działa zgodnie z oczekiwaniem")
+		t.Fatal("the SDK CLI does not behave as expected")
 	}
 }
 
@@ -145,14 +145,14 @@ func firstLines(s string, n int) string {
 	return strings.Join(out, "\n")
 }
 
-// Przestarzały alias connectTo (API 0.1.0) działa jak expose.
+// The deprecated connectTo alias (0.1.0 API) works like expose.
 func TestSDK_DeprecatedConnectToAlias(t *testing.T) {
 	e := apiSetup(t)
 	_, connect := e.Token("api")
 	e.StartApp(h.AppOptions{Container: h.ClientA, Connect: connect, Replica: "alias", Env: "CONNECT_TO=1", Wait: true})
 	e.WaitHTTPS("https://api.ep.test/whoami", 200)
 	code, body, err := get(e.HTTPClient(), "https://api.ep.test/whoami")
-	result(t, "connectTo (alias): kod %d, replika %q", code, replicaOf(body))
+	result(t, "connectTo (alias): status %d, replica %q", code, replicaOf(body))
 	if err != nil || code != 200 || replicaOf(body) != "alias" {
 		t.Fatalf("alias connectTo: %d %v %s", code, err, body)
 	}

@@ -32,7 +32,7 @@ func TestCaddyValidates(t *testing.T) {
 		bin = "../../../dist/deps/linux_amd64/caddy"
 	}
 	if _, err := os.Stat(bin); err != nil {
-		t.Skip("brak binarki caddy")
+		t.Skip("no caddy binary")
 	}
 	s := sample()
 	if err := s.Validate(20000, 29999); err != nil {
@@ -58,7 +58,7 @@ func TestHashCanonical(t *testing.T) {
 	a, _ := Hash([]byte(`{"b":1,"a":{"y":2,"x":1}}`))
 	b, _ := Hash([]byte("{\n \"a\": {\"x\":1,\"y\":2}, \"b\": 1}"))
 	if a != b {
-		t.Fatal("hash zależy od kolejności kluczy")
+		t.Fatal("hash depends on key order")
 	}
 }
 

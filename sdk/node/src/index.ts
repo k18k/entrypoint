@@ -1,6 +1,6 @@
-// Kontrakt bazowy SDK: tunel do istniejącego lokalnego adresu.
-// Aplikacja słucha jak zwykle, a SDK wystawia ten adres przez bramę Entrypoint.
-// Uprawnienia sprawdza brama, nigdy SDK.
+// SDK base contract: a tunnel to an existing local address.
+// The application listens as usual, and the SDK exposes that address through the Entrypoint gateway.
+// Permissions are checked by the gateway, never by the SDK.
 import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
@@ -12,26 +12,26 @@ import { connectorDirs, connectorExe, ensureConnector } from "./connector.js";
 export { ensureConnector } from "./connector.js";
 
 export interface TunnelOptions {
-  /** Pakiet połączenia ENTRYPOINT_CONNECT (domyślnie z process.env). */
+  /** ENTRYPOINT_CONNECT connection bundle (from process.env by default). */
   connect?: string;
-  /** Nazwa serwisu; musi zgadzać się z pakietem połączenia. */
+  /** Service name; must match the connection bundle. */
   service?: string;
-  /** Lokalny adres aplikacji, np. http://127.0.0.1:3000. */
+  /** Local address of the application, e.g. http://127.0.0.1:3000. */
   upstream: string;
-  /** Ścieżka health checku HTTP, np. /health. Bez niej health check jest TCP. */
+  /** HTTP health check path, e.g. /health. Without it the health check is TCP. */
   healthCheck?: string;
   healthIntervalSec?: number;
   healthMaxFailed?: number;
-  /** Domyślny czas drainu (ms). */
+  /** Default drain time (ms). */
   drainTimeoutMs?: number;
-  /** Nazwa repliki (domyślnie z nazwy hosta). */
+  /** Replica name (from the hostname by default). */
   replica?: string;
-  /** Ścieżka do entrypoint-connector (domyślnie z pakietu platformy albo ENTRYPOINT_CONNECTOR). */
+  /** Path to entrypoint-connector (from the platform package or ENTRYPOINT_CONNECTOR by default). */
   connectorPath?: string;
-  /** Czy tunnel() ma czekać na pierwszą zdrową rejestrację (domyślnie true). */
+  /** Whether tunnel() waits for the first healthy registration (default true). */
   waitReady?: boolean;
   readyTimeoutMs?: number;
-  /** Gdzie trafiają logi konektora i frpc (domyślnie stderr procesu). */
+  /** Where connector and frpc logs go (the process stderr by default). */
   log?: "inherit" | "ignore";
 }
 
@@ -72,7 +72,7 @@ export class TunnelError extends Error {
   }
 }
 
-/** Uchwyt tunelu. Zdarzenia konektora są tylko obserwowane. */
+/** Tunnel handle. Connector events are only observed. */
 export class Tunnel extends EventEmitter {
   replica: string = "";
   state: TunnelEventName = "starting";
@@ -90,7 +90,7 @@ export class Tunnel extends EventEmitter {
       const rl = createInterface({ input: child.stdout });
       rl.on("line", (line) => this.#onLine(line));
     }
-    // Rura stdin jest „linią życia”: gdy proces Node zginie, konektor kończy frpc i siebie.
+    // The stdin pipe is a "lifeline": when the Node process dies, the connector stops frpc and itself.
     child.stdin?.on("error", () => {});
   }
 
@@ -113,9 +113,9 @@ export class Tunnel extends EventEmitter {
   }
 
   /**
-   * Drain repliki: wycofanie z grupy (brak nowych połączeń), wygaszanie istniejących
-   * połączeń przez timeoutMs, potem zakończenie frpc. Kontrakt bazowy czeka tylko na
-   * wygaśnięcie połączeń; adapter zgłasza ich koniec przez notifyDrained().
+   * Replica drain: withdraw from the group (no new connections), wind down existing
+   * connections over timeoutMs, then stop frpc. The base contract only waits for the
+   * connections to expire; an adapter reports their end through notifyDrained().
    */
   drain(opts: { timeoutMs?: number } = {}): Promise<number> {
     if (!this.#draining) {
@@ -125,7 +125,7 @@ export class Tunnel extends EventEmitter {
     return this.#draining;
   }
 
-  /** Czeka na wycofanie repliki z grupy (krok 1 drainu). */
+  /** Waits for the replica to be withdrawn from the group (drain step 1). */
   withdrawn(): Promise<void> {
     if (this.state === "withdrawn") return Promise.resolve();
     return new Promise((resolve) => {
@@ -134,12 +134,12 @@ export class Tunnel extends EventEmitter {
     });
   }
 
-  /** Adapter: wszystkie połączenia zamknięte, konektor może zakończyć frpc. */
+  /** Adapter: all connections closed, the connector may stop frpc. */
   notifyDrained(): void {
     this.#send({ cmd: "drained" });
   }
 
-  /** Natychmiastowe zamknięcie tunelu, bez drainu. */
+  /** Immediate tunnel shutdown, without drain. */
   close(): Promise<number> {
     this.#send({ cmd: "stop" });
     this.#child.stdin?.end();
@@ -152,8 +152,8 @@ function platformPackage(): string {
 }
 
 /**
- * Znajduje binarkę konektora: jawna ścieżka, ENTRYPOINT_CONNECTOR, pakiet platformy
- * (jeśli zainstalowany), katalog bin/ paczki albo pamięć podręczna pobrań.
+ * Finds the connector binary: an explicit path, ENTRYPOINT_CONNECTOR, the platform package
+ * (if installed), the package's bin/ directory or the download cache.
  */
 export function findConnector(explicit?: string): string {
   const exe = connectorExe();
@@ -165,13 +165,13 @@ export function findConnector(explicit?: string): string {
     const pkg = require.resolve(`${platformPackage()}/package.json`);
     candidates.push(join(dirname(pkg), "bin", exe));
   } catch {
-    // pakiet platformy nie jest zainstalowany
+    // the platform package is not installed
   }
   for (const dir of connectorDirs()) candidates.push(join(dir, exe));
   const found = candidates.find((c) => existsSync(c));
   if (found) return found;
   throw new TunnelError(
-    `nie znaleziono ${exe}; uruchom npx entrypoint-tunnel install-connector albo ustaw ENTRYPOINT_CONNECTOR`,
+    `${exe} not found; run npx entrypoint-tunnel install-connector or set ENTRYPOINT_CONNECTOR`,
   );
 }
 
@@ -185,7 +185,7 @@ async function resolveConnector(explicit?: string): Promise<string> {
       return await ensureConnector();
     } catch (dl) {
       throw new TunnelError(
-        `nie udało się pobrać konektora: ${dl instanceof Error ? dl.message : String(dl)}`,
+        `failed to download the connector: ${dl instanceof Error ? dl.message : String(dl)}`,
       );
     }
   }
@@ -206,7 +206,7 @@ function waitReady(t: Tunnel, timeoutMs: number): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup();
-      reject(new TunnelError(`tunel nie był gotowy w ${timeoutMs} ms (stan: ${t.state})`));
+      reject(new TunnelError(`tunnel was not ready within ${timeoutMs} ms (state: ${t.state})`));
     }, timeoutMs);
     const onEvent = (ev: TunnelEvent): void => {
       if (ev.event === "healthy") {
@@ -224,17 +224,17 @@ function waitReady(t: Tunnel, timeoutMs: number): Promise<void> {
     t.on("event", onEvent);
     void t.exited.then((code) => {
       cleanup();
-      reject(new TunnelError(`konektor zakończył działanie (kod ${code}) przed gotowością`));
+      reject(new TunnelError(`connector exited (code ${code}) before becoming ready`));
     });
   });
 }
 
-/** Otwiera tunel do lokalnego adresu aplikacji. */
+/** Opens a tunnel to the application's local address. */
 export async function tunnel(opts: TunnelOptions): Promise<Tunnel> {
   const connect = opts.connect ?? process.env.ENTRYPOINT_CONNECT;
-  if (!connect) throw new TunnelError("brak pakietu połączenia (ENTRYPOINT_CONNECT)");
+  if (!connect) throw new TunnelError("missing connection bundle (ENTRYPOINT_CONNECT)");
   const bin = await resolveConnector(opts.connectorPath);
-  // Pakiet połączenia przekazujemy wyłącznie przez środowisko konektora, nigdy w argumentach.
+  // The connection bundle is passed only through the connector's environment, never in arguments.
   const child = spawn(bin, connectorArgs(opts), {
     env: { ...process.env, ENTRYPOINT_CONNECT: connect },
     stdio: ["pipe", "pipe", opts.log === "ignore" ? "ignore" : "inherit"],

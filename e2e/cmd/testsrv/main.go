@@ -1,4 +1,4 @@
-// testsrv: usługa testowa osiągalna przez IP:port (HTTP, SSE, WebSocket, echo nagłówków).
+// testsrv: a test service reachable at IP:port (HTTP, SSE, WebSocket, header echo).
 package main
 
 import (
@@ -18,8 +18,8 @@ import (
 )
 
 func main() {
-	addr := flag.String("addr", ":8080", "adres")
-	name := flag.String("name", "upstream", "nazwa w odpowiedziach")
+	addr := flag.String("addr", ":8080", "address")
+	name := flag.String("name", "upstream", "name in responses")
 	flag.Parse()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -81,6 +81,6 @@ func main() {
 		fmt.Fprintln(w, "ok")
 	})
 	host, _ := os.Hostname()
-	log.Printf("testsrv %s (%s) na %s", *name, host, *addr)
+	log.Printf("testsrv %s (%s) on %s", *name, host, *addr)
 	log.Fatal(http.ListenAndServe(*addr, mux))
 }

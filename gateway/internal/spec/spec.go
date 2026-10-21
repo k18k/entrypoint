@@ -1,5 +1,5 @@
-// Pakiet spec definiuje dokument konfiguracji zapisywany w rewizjach
-// oraz jego walidację.
+// Package spec defines the configuration document stored in revisions
+// and its validation.
 package spec
 
 import (
@@ -22,14 +22,14 @@ const (
 	DefaultMaxReplicas           = 10
 )
 
-// Spec to pełna konfiguracja oczekiwana w danej rewizji.
+// Spec is the full desired configuration of a revision.
 type Spec struct {
 	Services []Service `json:"services"`
 	Routes   []Route   `json:"routes"`
 	Tokens   []Token   `json:"tokens"`
 }
 
-// Service to serwis tunelu ze stałym portem.
+// Service is a tunnel service with a fixed port.
 type Service struct {
 	ID     int64  `json:"id"`
 	Name   string `json:"name"`
@@ -37,7 +37,7 @@ type Service struct {
 	Health string `json:"health,omitempty"`
 }
 
-// Route kieruje parę host+prefiks do serwisu albo upstreamu IP:port.
+// Route sends a host+prefix pair to a service or to an IP:port upstream.
 type Route struct {
 	ID                    string `json:"id"`
 	Host                  string `json:"host"`
@@ -46,15 +46,15 @@ type Route struct {
 	Upstream              string `json:"upstream,omitempty"`
 	StripPrefix           bool   `json:"stripPrefix,omitempty"`
 	MaxBodyBytes          int64  `json:"maxBodyBytes,omitempty"`
-	ResponseHeaderTimeout int    `json:"responseHeaderTimeout,omitempty"` // sekundy
-	ACME                  string `json:"acme,omitempty"`                  // "" (produkcja) albo "staging"
+	ResponseHeaderTimeout int    `json:"responseHeaderTimeout,omitempty"` // seconds
+	ACME                  string `json:"acme,omitempty"`                  // "" (production) or "staging"
 	// Wildcard routes only: concrete names allowed to get a certificate (obtained up front),
 	// and the explicit opt-in to on-demand certificates for any subdomain (rate-limited).
 	TLSNames    []string `json:"tlsNames,omitempty"`
 	TLSOnDemand bool     `json:"tlsOnDemand,omitempty"`
 }
 
-// Token to wpis tokenu serwisu. Przechowywany jest wyłącznie hash sekretu.
+// Token is a service token entry. Only the secret's hash is stored.
 type Token struct {
 	ID          string    `json:"id"`
 	ServiceID   int64     `json:"serviceId"`
@@ -64,7 +64,7 @@ type Token struct {
 	MaxReplicas int       `json:"maxReplicas,omitempty"`
 }
 
-// Scope zwraca uprawnienie tokenu.
+// Scope returns the token's permission.
 func (t Token) Scope(s *Spec) string {
 	if svc := s.ServiceByID(t.ServiceID); svc != nil {
 		return "replica:connect " + svc.Name
@@ -93,15 +93,15 @@ func (t Token) EffectiveMaxReplicas() int {
 	return DefaultMaxReplicas
 }
 
-// Target opisuje cel trasy w czytelnej formie.
+// Target describes the route's target in readable form.
 func (r Route) Target() string {
 	if r.Service != "" {
-		return "serwis " + r.Service
+		return "service " + r.Service
 	}
 	return r.Upstream
 }
 
-// Clone tworzy głęboką kopię.
+// Clone makes a deep copy.
 func (s *Spec) Clone() *Spec {
 	b, _ := json.Marshal(s)
 	var out Spec
@@ -145,7 +145,7 @@ func (s *Spec) TokenByID(id string) *Token {
 	return nil
 }
 
-// Normalize porządkuje kolejność elementów, żeby rewizje były porównywalne.
+// Normalize sorts the elements so that revisions are comparable.
 func (s *Spec) Normalize() {
 	if s.Services == nil {
 		s.Services = []Service{}
@@ -175,45 +175,45 @@ var (
 	routeIDRe     = regexp.MustCompile(`^r[0-9a-f]{6}$`)
 )
 
-// ValidServiceName sprawdza nazwę serwisu.
+// ValidServiceName checks a service name.
 func ValidServiceName(n string) error {
 	if !serviceNameRe.MatchString(n) {
-		return fmt.Errorf("niepoprawna nazwa serwisu %q: dozwolone małe litery, cyfry i '-', start literą, do 31 znaków", n)
+		return fmt.Errorf("invalid service name %q: lowercase letters, digits and '-', starting with a letter, up to 31 characters", n)
 	}
 	return nil
 }
 
-// NormalizeHost sprowadza nazwę hosta do małych liter i ją sprawdza.
+// NormalizeHost lowercases a host name and checks it.
 func NormalizeHost(h string) (string, error) {
 	h = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(h)), ".")
 	if h == "" {
-		return "", errors.New("pusty host")
+		return "", errors.New("empty host")
 	}
 	if len(h) > 253 {
-		return "", fmt.Errorf("host %q jest za długi", h)
+		return "", fmt.Errorf("host %q is too long", h)
 	}
 	labels := strings.Split(h, ".")
 	if len(labels) < 2 {
-		return "", fmt.Errorf("host %q musi mieć co najmniej dwie etykiety", h)
+		return "", fmt.Errorf("host %q must have at least two labels", h)
 	}
 	for i, l := range labels {
 		if l == "*" && i == 0 {
 			if len(labels) < 3 {
-				return "", fmt.Errorf("wildcard %q obejmuje całą domenę najwyższego poziomu", h)
+				return "", fmt.Errorf("wildcard %q covers a whole top-level domain", h)
 			}
 			continue
 		}
 		if !labelRe.MatchString(l) {
-			return "", fmt.Errorf("niepoprawny host %q (wildcard dozwolony tylko jako pierwsza etykieta)", h)
+			return "", fmt.Errorf("invalid host %q (a wildcard is allowed only as the first label)", h)
 		}
 	}
 	if _, err := netip.ParseAddr(h); err == nil {
-		return "", fmt.Errorf("host %q jest adresem IP; trasy wymagają nazwy DNS", h)
+		return "", fmt.Errorf("host %q is an IP address; routes need a DNS name", h)
 	}
 	return h, nil
 }
 
-// NormalizePrefix sprowadza prefiks do postaci kanonicznej: zaczyna się od '/', bez końcowego '/'.
+// NormalizePrefix brings a prefix to canonical form: it starts with '/' and has no trailing '/'.
 func NormalizePrefix(p string) (string, error) {
 	if p == "" || p == "/" {
 		return "/", nil
@@ -223,44 +223,44 @@ func NormalizePrefix(p string) (string, error) {
 	}
 	p = strings.TrimRight(p, "/")
 	if !prefixRe.MatchString(p) {
-		return "", fmt.Errorf("niepoprawny prefiks %q", p)
+		return "", fmt.Errorf("invalid prefix %q", p)
 	}
 	for _, seg := range strings.Split(p[1:], "/") {
 		if seg == "." || seg == ".." {
-			return "", fmt.Errorf("prefiks %q zawiera segment %q", p, seg)
+			return "", fmt.Errorf("prefix %q contains the segment %q", p, seg)
 		}
 	}
 	return p, nil
 }
 
-// ValidUpstream sprawdza adres IP:port.
+// ValidUpstream checks an IP:port address.
 func ValidUpstream(u string) error {
 	host, port, err := net.SplitHostPort(u)
 	if err != nil {
-		return fmt.Errorf("upstream %q: oczekiwano IP:port", u)
+		return fmt.Errorf("upstream %q: expected IP:port", u)
 	}
 	if _, err := netip.ParseAddr(host); err != nil {
-		return fmt.Errorf("upstream %q: %q nie jest adresem IP", u, host)
+		return fmt.Errorf("upstream %q: %q is not an IP address", u, host)
 	}
 	n, err := strconv.Atoi(port)
 	if err != nil || n < 1 || n > 65535 {
-		return fmt.Errorf("upstream %q: niepoprawny port", u)
+		return fmt.Errorf("upstream %q: invalid port", u)
 	}
 	return nil
 }
 
-// ValidHealthPath sprawdza ścieżkę health checku.
+// ValidHealthPath checks a health check path.
 func ValidHealthPath(p string) error {
 	if p == "" {
 		return nil
 	}
 	if !healthRe.MatchString(p) {
-		return fmt.Errorf("niepoprawna ścieżka health checku %q", p)
+		return fmt.Errorf("invalid health check path %q", p)
 	}
 	return nil
 }
 
-// Validate sprawdza spójność całej konfiguracji: schemat, konflikty tras, istnienie serwisów.
+// Validate checks the whole configuration for consistency: schema, route conflicts, existing services.
 func (s *Spec) Validate(poolStart, poolEnd int) error {
 	var errs []string
 	add := func(f string, a ...any) { errs = append(errs, fmt.Sprintf(f, a...)) }
@@ -273,22 +273,22 @@ func (s *Spec) Validate(poolStart, poolEnd int) error {
 			add("%v", err)
 		}
 		if names[svc.Name] {
-			add("serwis %q występuje dwa razy", svc.Name)
+			add("service %q appears twice", svc.Name)
 		}
 		names[svc.Name] = true
 		if svc.ID <= 0 || ids[svc.ID] {
-			add("serwis %q: niepoprawny identyfikator", svc.Name)
+			add("service %q: invalid ID", svc.Name)
 		}
 		ids[svc.ID] = true
 		if svc.Port < poolStart || svc.Port > poolEnd {
-			add("serwis %q: port %d spoza puli %d-%d", svc.Name, svc.Port, poolStart, poolEnd)
+			add("service %q: port %d outside the pool %d-%d", svc.Name, svc.Port, poolStart, poolEnd)
 		}
 		if ports[svc.Port] {
-			add("port %d przypisany do dwóch serwisów", svc.Port)
+			add("port %d assigned to two services", svc.Port)
 		}
 		ports[svc.Port] = true
 		if err := ValidHealthPath(svc.Health); err != nil {
-			add("serwis %q: %v", svc.Name, err)
+			add("service %q: %v", svc.Name, err)
 		}
 	}
 
@@ -298,60 +298,60 @@ func (s *Spec) Validate(poolStart, poolEnd int) error {
 	hostACME := map[string]string{}
 	for _, r := range s.Routes {
 		if !routeIDRe.MatchString(r.ID) || routeIDs[r.ID] {
-			add("trasa %q: niepoprawny lub powtórzony identyfikator", r.ID)
+			add("route %q: invalid or duplicate ID", r.ID)
 		}
 		routeIDs[r.ID] = true
 		h, err := NormalizeHost(r.Host)
 		if err != nil {
-			add("trasa %s: %v", r.ID, err)
+			add("route %s: %v", r.ID, err)
 		} else if h != r.Host {
-			add("trasa %s: host nie jest znormalizowany", r.ID)
+			add("route %s: host is not normalized", r.ID)
 		}
 		p, err := NormalizePrefix(r.Prefix)
 		if err != nil {
-			add("trasa %s: %v", r.ID, err)
+			add("route %s: %v", r.ID, err)
 		} else if p != r.Prefix {
-			add("trasa %s: prefiks nie jest znormalizowany", r.ID)
+			add("route %s: prefix is not normalized", r.ID)
 		}
 		k := key{r.Host, strings.ToLower(r.Prefix)} // Caddy matches paths case-insensitively
 		if other, ok := seen[k]; ok {
-			add("konflikt tras: %s%s jest już zajęte przez trasę %s", r.Host, r.Prefix, other)
+			add("route conflict: %s%s is already taken by route %s", r.Host, r.Prefix, other)
 		}
 		seen[k] = r.ID
 		switch {
 		case r.Service != "" && r.Upstream != "":
-			add("trasa %s: wskazuje jednocześnie serwis i upstream", r.ID)
+			add("route %s: points to both a service and an upstream", r.ID)
 		case r.Service == "" && r.Upstream == "":
-			add("trasa %s: brak celu", r.ID)
+			add("route %s: no target", r.ID)
 		case r.Service != "":
 			if !names[r.Service] {
-				add("trasa %s: serwis %q nie istnieje", r.ID, r.Service)
+				add("route %s: service %q does not exist", r.ID, r.Service)
 			}
 		default:
 			if err := ValidUpstream(r.Upstream); err != nil {
-				add("trasa %s: %v", r.ID, err)
+				add("route %s: %v", r.ID, err)
 			}
 		}
 		if r.StripPrefix && r.Prefix == "/" {
-			add("trasa %s: stripPrefix nie ma sensu dla prefiksu /", r.ID)
+			add("route %s: stripPrefix makes no sense for the / prefix", r.ID)
 		}
 		if r.MaxBodyBytes < 0 || r.ResponseHeaderTimeout < 0 {
-			add("trasa %s: ujemny limit", r.ID)
+			add("route %s: negative limit", r.ID)
 		}
 		if r.ACME != "" && r.ACME != "staging" {
-			add("trasa %s: nieznany tryb ACME %q", r.ID, r.ACME)
+			add("route %s: unknown ACME mode %q", r.ID, r.ACME)
 		}
 		wild := strings.HasPrefix(r.Host, "*.")
 		if !wild && (len(r.TLSNames) > 0 || r.TLSOnDemand) {
-			add("trasa %s: tlsNames i tlsOnDemand dotyczą tylko tras wildcard", r.ID)
+			add("route %s: tlsNames and tlsOnDemand apply only to wildcard routes", r.ID)
 		}
 		for _, n := range r.TLSNames {
 			if h, err := NormalizeHost(n); err != nil || h != n || strings.HasPrefix(n, "*.") || !MatchesWildcard(r.Host, n) {
-				add("trasa %s: nazwa TLS %q nie jest pojedynczą subdomeną %s", r.ID, n, r.Host)
+				add("route %s: TLS name %q is not a single subdomain of %s", r.ID, n, r.Host)
 			}
 		}
 		if prev, ok := hostACME[r.Host]; ok && prev != r.ACME {
-			add("host %s: trasy mają różne tryby ACME", r.Host)
+			add("host %s: routes have different ACME modes", r.Host)
 		}
 		hostACME[r.Host] = r.ACME
 	}
@@ -359,17 +359,17 @@ func (s *Spec) Validate(poolStart, poolEnd int) error {
 	tokIDs := map[string]bool{}
 	for _, t := range s.Tokens {
 		if tokIDs[t.ID] {
-			add("token %s występuje dwa razy", t.ID)
+			add("token %s appears twice", t.ID)
 		}
 		tokIDs[t.ID] = true
 		if !ids[t.ServiceID] {
-			add("token %s: serwis nie istnieje", t.ID)
+			add("token %s: service does not exist", t.ID)
 		}
 		if len(t.Hash) != 64 {
-			add("token %s: niepoprawny hash", t.ID)
+			add("token %s: invalid hash", t.ID)
 		}
 		if t.MaxReplicas < 0 {
-			add("token %s: ujemny limit replik", t.ID)
+			add("token %s: negative replica limit", t.ID)
 		}
 	}
 	if len(errs) > 0 {
@@ -378,14 +378,14 @@ func (s *Spec) Validate(poolStart, poolEnd int) error {
 	return nil
 }
 
-// ValidationError zbiera wszystkie problemy walidacji.
+// ValidationError collects all validation problems.
 type ValidationError struct{ Problems []string }
 
 func (e *ValidationError) Error() string {
-	return "walidacja nie powiodła się: " + strings.Join(e.Problems, "; ")
+	return "validation failed: " + strings.Join(e.Problems, "; ")
 }
 
-// Diff opisuje zmiany między dwiema konfiguracjami. Nie zawiera hashy tokenów.
+// Diff describes the changes between two configurations. It never contains token hashes.
 func Diff(a, b *Spec) []string {
 	var out []string
 	as := map[string]Service{}
@@ -396,14 +396,14 @@ func Diff(a, b *Spec) []string {
 	for _, s := range b.Services {
 		bs[s.Name] = s
 		if old, ok := as[s.Name]; !ok {
-			out = append(out, fmt.Sprintf("+ serwis %s (port %d)", s.Name, s.Port))
+			out = append(out, fmt.Sprintf("+ service %s (port %d)", s.Name, s.Port))
 		} else if !reflect.DeepEqual(old, s) {
-			out = append(out, fmt.Sprintf("~ serwis %s", s.Name))
+			out = append(out, fmt.Sprintf("~ service %s", s.Name))
 		}
 	}
 	for _, s := range a.Services {
 		if _, ok := bs[s.Name]; !ok {
-			out = append(out, fmt.Sprintf("- serwis %s (port %d zostaje zarezerwowany)", s.Name, s.Port))
+			out = append(out, fmt.Sprintf("- service %s (port %d stays reserved)", s.Name, s.Port))
 		}
 	}
 	ar := map[string]Route{}
@@ -414,14 +414,14 @@ func Diff(a, b *Spec) []string {
 	for _, r := range b.Routes {
 		br[r.ID] = true
 		if old, ok := ar[r.ID]; !ok {
-			out = append(out, fmt.Sprintf("+ trasa %s %s%s -> %s", r.ID, r.Host, r.Prefix, r.Target()))
+			out = append(out, fmt.Sprintf("+ route %s %s%s -> %s", r.ID, r.Host, r.Prefix, r.Target()))
 		} else if !reflect.DeepEqual(old, r) {
-			out = append(out, fmt.Sprintf("~ trasa %s %s%s -> %s", r.ID, r.Host, r.Prefix, r.Target()))
+			out = append(out, fmt.Sprintf("~ route %s %s%s -> %s", r.ID, r.Host, r.Prefix, r.Target()))
 		}
 	}
 	for _, r := range a.Routes {
 		if !br[r.ID] {
-			out = append(out, fmt.Sprintf("- trasa %s %s%s", r.ID, r.Host, r.Prefix))
+			out = append(out, fmt.Sprintf("- route %s %s%s", r.ID, r.Host, r.Prefix))
 		}
 	}
 	at := map[string]bool{}
@@ -436,7 +436,7 @@ func Diff(a, b *Spec) []string {
 			if s := b.ServiceByID(t.ServiceID); s != nil {
 				name = s.Name
 			}
-			out = append(out, fmt.Sprintf("+ token %s dla serwisu %s", t.ID, name))
+			out = append(out, fmt.Sprintf("+ token %s for service %s", t.ID, name))
 		}
 	}
 	for _, t := range a.Tokens {

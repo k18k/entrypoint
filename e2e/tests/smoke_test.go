@@ -7,7 +7,7 @@ import (
 	h "github.com/k18k/entrypoint/e2e/harness"
 )
 
-// Środowisko e2e zestawia się poprawnie: systemd na bramie, Pebble, CoreDNS, klienci, chaos.
+// The e2e environment comes up correctly: systemd on the gateway, Pebble, CoreDNS, clients, chaos.
 func TestSmoke_Environment(t *testing.T) {
 	e := h.New(t)
 	e.SetDNS(map[string]string{"smoke.ep.test": "172.28.0.99"})
@@ -20,7 +20,7 @@ func TestSmoke_Environment(t *testing.T) {
 		t.Fatalf("Pebble: %v", err)
 	}
 	if out := e.MustExec(h.Gateway, "getent", "hosts", "smoke.ep.test"); !strings.Contains(out, "172.28.0.99") {
-		t.Fatalf("DNS na bramie: %s", out)
+		t.Fatalf("DNS on the gateway: %s", out)
 	}
 	for _, c := range []string{h.ClientA, h.ClientB, h.Attacker} {
 		e.MustExec(c, "frpc", "-v")
@@ -28,7 +28,7 @@ func TestSmoke_Environment(t *testing.T) {
 		e.MustSh(c, "cd /app && node -e \"import('@k18k/entrypoint-ts').then(m => console.log(m.findConnector()))\"")
 	}
 	if out := e.MustSh(h.Gateway, "curl -s http://"+h.UpstreamVPN+"/ping"); !strings.Contains(out, "vpn-upstream") {
-		t.Fatalf("upstream przez sieć prywatną: %s", out)
+		t.Fatalf("upstream over the private network: %s", out)
 	}
 	if _, err := h.Run(nil, "docker", "run", "--rm", "--network", "container:"+h.ClientA, "--cap-add", "NET_ADMIN", "ep-e2e-chaos",
 		"tc qdisc add dev eth0 root netem delay 10ms && tc qdisc del dev eth0 root"); err != nil {

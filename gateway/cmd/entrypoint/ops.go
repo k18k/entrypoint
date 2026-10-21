@@ -24,7 +24,7 @@ import (
 	"github.com/k18k/entrypoint/gateway/internal/pki"
 )
 
-// localIPs zwraca adresy, pod którymi brama jest osiągalna: z konfiguracji albo z interfejsów.
+// localIPs returns the addresses the gateway is reachable at: from the configuration or the interfaces.
 func localIPs(cfg config.Config) []netip.Addr {
 	var out []netip.Addr
 	for _, s := range cfg.PublicIPs {
@@ -54,7 +54,7 @@ func localIPs(cfg config.Config) []netip.Addr {
 
 func cmdDNSCheck(args []string) error {
 	fs := flag.NewFlagSet("dns check", flag.ContinueOnError)
-	asJSON := fs.Bool("json", false, "wyjście JSON")
+	asJSON := fs.Bool("json", false, "JSON output")
 	if _, err := parse(fs, args); err != nil {
 		return err
 	}
@@ -109,7 +109,7 @@ func cmdDNSCheck(args []string) error {
 		ips, err := net.DefaultResolver.LookupNetIP(lctx, "ip", lookup)
 		lcancel()
 		if err != nil {
-			r.Problem = "brak rekordu"
+			r.Problem = "no record"
 		} else {
 			match := false
 			for _, ip := range ips {
@@ -118,13 +118,13 @@ func cmdDNSCheck(args []string) error {
 				if wantSet[ip] {
 					match = true
 				} else {
-					r.Problem = "rekord wskazuje inny adres"
+					r.Problem = "record points to a different address"
 				}
 			}
 			if match && r.Problem == "" {
 				r.OK = true
 			} else if r.Problem == "" {
-				r.Problem = "rekord wskazuje inny adres"
+				r.Problem = "record points to a different address"
 			}
 		}
 		if !r.OK {
@@ -138,10 +138,10 @@ func cmdDNSCheck(args []string) error {
 		}
 	} else {
 		if len(want) == 0 {
-			fmt.Println("uwaga: nie wykryto adresu bramy; podaj go przy instalacji: --public-ip")
+			fmt.Println("warning: gateway address not detected; pass it at install time: --public-ip")
 		}
 		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(w, "HOST\tWYMAGANY REKORD\tSTAN\tOBECNIE")
+		fmt.Fprintln(w, "HOST\tREQUIRED RECORD\tSTATE\tCURRENT")
 		for _, r := range rows {
 			state := "OK"
 			if !r.OK {
@@ -150,7 +150,7 @@ func cmdDNSCheck(args []string) error {
 			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", r.Host, r.Record, state, dash(strings.Join(r.Current, " ")))
 		}
 		w.Flush()
-		fmt.Println("\nTo test wstępny, a nie ochrona przed limitami Let's Encrypt. Entrypoint nie zmienia rekordów DNS.")
+		fmt.Println("\nThis is a preflight check, not protection against Let's Encrypt limits. Entrypoint does not change DNS records.")
 	}
 	if problems > 0 {
 		return exitError{1, ""}
@@ -160,7 +160,7 @@ func cmdDNSCheck(args []string) error {
 
 func cmdCAStatus(args []string) error {
 	fs := flag.NewFlagSet("ca status", flag.ContinueOnError)
-	asJSON := fs.Bool("json", false, "wyjście JSON")
+	asJSON := fs.Bool("json", false, "JSON output")
 	if _, err := parse(fs, args); err != nil {
 		return err
 	}
@@ -181,24 +181,24 @@ func printCA(info api.CAInfo, asJSON bool) error {
 	if asJSON {
 		return printJSON(info)
 	}
-	state := map[string]string{"": "brak rotacji", "staged": "etap 1: nowe CA w pakietach, serwer na starym", "switched": "etap 2: serwer na nowym CA, stare CA nadal w pakietach"}[info.State]
-	fmt.Println("Rotacja:", state)
-	fmt.Printf("CA bieżące: %s (ważne do %s)\n", info.Current.Fingerprint, info.Current.NotAfter.Format("2006-01-02"))
+	state := map[string]string{"": "no rotation", "staged": "step 1: new CA in bundles, server on the old one", "switched": "step 2: server on the new CA, old CA still in bundles"}[info.State]
+	fmt.Println("Rotation:", state)
+	fmt.Printf("Current CA: %s (valid until %s)\n", info.Current.Fingerprint, info.Current.NotAfter.Format("2006-01-02"))
 	if info.Next != nil {
-		fmt.Printf("CA nowe:    %s (ważne do %s)\n", info.Next.Fingerprint, info.Next.NotAfter.Format("2006-01-02"))
+		fmt.Printf("New CA:     %s (valid until %s)\n", info.Next.Fingerprint, info.Next.NotAfter.Format("2006-01-02"))
 	}
 	if info.Old != nil {
-		fmt.Printf("CA stare:   %s\n", info.Old.Fingerprint)
+		fmt.Printf("Old CA:     %s\n", info.Old.Fingerprint)
 	}
-	fmt.Printf("Certyfikat portu tunelu: %s, wystawca %s, ważny do %s\n", info.Server.Subject, info.Server.Issuer, info.Server.NotAfter.Format("2006-01-02"))
-	fmt.Println("CA w nowych pakietach połączenia:", strings.Join(info.BundleCAs, ", "))
+	fmt.Printf("Tunnel port certificate: %s, issuer %s, valid until %s\n", info.Server.Subject, info.Server.Issuer, info.Server.NotAfter.Format("2006-01-02"))
+	fmt.Println("CAs in new connection bundles:", strings.Join(info.BundleCAs, ", "))
 	if info.State != "" {
 		if len(info.StaleClients) == 0 {
-			fmt.Println("Wszyscy klienci logują się już z pakietem zawierającym nowe CA.")
+			fmt.Println("All clients already log in with a bundle that contains the new CA.")
 		} else {
-			fmt.Println("Klienci logujący się jeszcze ze starym pakietem:")
+			fmt.Println("Clients still logging in with an old bundle:")
 			for _, t := range info.StaleClients {
-				fmt.Printf("  token %s (serwis %s), ostatnio %s z %s\n", t.ID, t.Service, t.LastLogin.LastLogin.Local().Format(time.DateTime), t.LastLogin.ClientIP)
+				fmt.Printf("  token %s (service %s), last %s from %s\n", t.ID, t.Service, t.LastLogin.LastLogin.Local().Format(time.DateTime), t.LastLogin.ClientIP)
 			}
 		}
 	}
@@ -207,16 +207,16 @@ func printCA(info api.CAInfo, asJSON bool) error {
 
 func cmdCARotate(args []string) error {
 	fs := flag.NewFlagSet("ca rotate", flag.ContinueOnError)
-	asJSON := fs.Bool("json", false, "wyjście JSON")
+	asJSON := fs.Bool("json", false, "JSON output")
 	pos, err := parse(fs, args)
 	if err != nil {
 		return err
 	}
 	if len(pos) != 1 {
-		return exitError{2, `użycie: entrypoint ca rotate start|switch|finish
-  start  — nowe CA; nowe pakiety połączenia zawierają oba CA (wydaj klientom nowe tokeny)
-  switch — serwer tunelu przechodzi na nowe CA (klienci tylko ze starym CA zostaną odrzuceni)
-  finish — stare CA znika z pakietów`}
+		return exitError{2, `usage: entrypoint ca rotate start|switch|finish
+  start  — new CA; new connection bundles contain both CAs (issue new tokens to clients)
+  switch — the tunnel server moves to the new CA (clients with only the old CA are rejected)
+  finish — the old CA leaves the bundles`}
 	}
 	c, err := client()
 	if err != nil {
@@ -231,7 +231,7 @@ func cmdCARotate(args []string) error {
 	return printCA(info, *asJSON)
 }
 
-// countCerts liczy certyfikaty wystawione przez tę instalację w ostatnich 7 dniach, per domena rejestrowalna.
+// countCerts counts certificates issued by this installation in the last 7 days, per registrable domain.
 func countCerts(cfg config.Config) map[string]int {
 	out := map[string]int{}
 	root := filepath.Join(cfg.CaddyStorage(), "certificates")
@@ -267,7 +267,7 @@ func readPassword(prompt string, twice bool) (string, error) {
 		return v, nil
 	}
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		return "", errors.New("podaj hasło przez --password-file albo ENTRYPOINT_BACKUP_PASSWORD")
+		return "", errors.New("pass the password with --password-file or ENTRYPOINT_BACKUP_PASSWORD")
 	}
 	fmt.Fprint(os.Stderr, prompt)
 	a, err := term.ReadPassword(int(os.Stdin.Fd()))
@@ -276,18 +276,18 @@ func readPassword(prompt string, twice bool) (string, error) {
 		return "", err
 	}
 	if twice {
-		fmt.Fprint(os.Stderr, "Powtórz hasło: ")
+		fmt.Fprint(os.Stderr, "Repeat the password: ")
 		b, err := term.ReadPassword(int(os.Stdin.Fd()))
 		fmt.Fprintln(os.Stderr)
 		if err != nil {
 			return "", err
 		}
 		if string(a) != string(b) {
-			return "", errors.New("hasła się różnią")
+			return "", errors.New("passwords do not match")
 		}
 	}
 	if len(a) < 12 {
-		return "", errors.New("hasło backupu musi mieć co najmniej 12 znaków")
+		return "", errors.New("the backup password must have at least 12 characters")
 	}
 	return string(a), nil
 }
@@ -302,7 +302,7 @@ func passwordFrom(file string, creating bool) (string, error) {
 		pw = strings.TrimRight(string(b), "\r\n")
 	} else {
 		var err error
-		if pw, err = readPassword("Hasło backupu: ", creating); err != nil {
+		if pw, err = readPassword("Backup password: ", creating); err != nil {
 			return "", err
 		}
 	}
@@ -315,13 +315,13 @@ func passwordFrom(file string, creating bool) (string, error) {
 
 func cmdBackup(args []string) error {
 	fs := flag.NewFlagSet("backup", flag.ContinueOnError)
-	out := fs.String("o", "", "plik wynikowy (domyślnie entrypoint-backup-<data>.age)")
-	pwFile := fs.String("password-file", "", "plik z hasłem")
+	out := fs.String("o", "", "output file (default entrypoint-backup-<date>.age)")
+	pwFile := fs.String("password-file", "", "password file")
 	if _, err := parse(fs, args); err != nil {
 		return err
 	}
 	if os.Geteuid() != 0 {
-		return errors.New("backup wymaga uprawnień root (sudo)")
+		return errors.New("backup requires root (sudo)")
 	}
 	cfg, err := loadConfig()
 	if err != nil {
@@ -348,27 +348,27 @@ func cmdBackup(args []string) error {
 		os.Remove(*out)
 		return err
 	}
-	fmt.Printf("Backup zapisany: %s (wersja %s, rewizja %d).\n", *out, m.Version, m.LastApplied)
-	fmt.Println("Przechowuj plik i hasło osobno, poza tą maszyną.")
+	fmt.Printf("Backup written: %s (version %s, revision %d).\n", *out, m.Version, m.LastApplied)
+	fmt.Println("Keep the file and the password separately, off this machine.")
 	return nil
 }
 
 func cmdRestore(args []string) error {
 	fs := flag.NewFlagSet("restore", flag.ContinueOnError)
-	pwFile := fs.String("password-file", "", "plik z hasłem")
-	yes := fs.Bool("yes", false, "nie pytaj o potwierdzenie")
+	pwFile := fs.String("password-file", "", "password file")
+	yes := fs.Bool("yes", false, "do not ask for confirmation")
 	pos, err := parse(fs, args)
 	if err != nil {
 		return err
 	}
 	if len(pos) != 1 {
-		return exitError{2, "użycie: entrypoint restore <plik>"}
+		return exitError{2, "usage: entrypoint restore <file>"}
 	}
 	if !*yes {
-		fmt.Fprintln(os.Stderr, "Restore zastąpi bieżący stan bramy stanem z backupu.")
-		fmt.Fprintln(os.Stderr, "Wszystkie odtworzone tokeny zostaną unieważnione; trzeba będzie wydać nowe.")
-		if !confirm("Kontynuować?") {
-			return exitError{1, "przerwano"}
+		fmt.Fprintln(os.Stderr, "Restore replaces the gateway's current state with the backup.")
+		fmt.Fprintln(os.Stderr, "All restored tokens are invalidated; you will need to issue new ones.")
+		if !confirm("Continue?") {
+			return exitError{1, "aborted"}
 		}
 	}
 	pw, err := passwordFrom(*pwFile, false)
@@ -386,9 +386,9 @@ func cmdRestore(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Odtworzono backup z %s (wersja %s, rewizja %d).\n", m.CreatedAt.Local().Format(time.DateTime), m.Version, m.LastApplied)
-	fmt.Printf("Unieważniono %d %s. Wydaj nowe: sudo entrypoint token create --service <nazwa>\n", n, plural(n, "token", "tokeny", "tokenów"))
-	fmt.Println("Jeśli zmienił się adres IP, zaktualizuj rekordy DNS (sudo entrypoint dns check).")
+	fmt.Printf("Restored the backup from %s (version %s, revision %d).\n", m.CreatedAt.Local().Format(time.DateTime), m.Version, m.LastApplied)
+	fmt.Printf("Invalidated %d token(s). Issue new ones: sudo entrypoint token create --service <name>\n", n)
+	fmt.Println("If the IP address changed, update the DNS records (sudo entrypoint dns check).")
 	cfg, _ := loadConfig()
 	c := api.NewClient(cfg.APISocket)
 	var svcs []api.ServiceInfo
@@ -398,18 +398,7 @@ func cmdRestore(args []string) error {
 			names = append(names, s.Name)
 		}
 		sort.Strings(names)
-		fmt.Println("Serwisy wymagające nowych tokenów:", strings.Join(names, ", "))
+		fmt.Println("Services that need new tokens:", strings.Join(names, ", "))
 	}
 	return nil
-}
-
-// plural wybiera polską formę liczebnika: 1 token, 2–4 tokeny, 5+ tokenów (12–14 tokenów).
-func plural(n int, one, few, many string) string {
-	switch {
-	case n == 1:
-		return one
-	case n%10 >= 2 && n%10 <= 4 && (n%100 < 12 || n%100 > 14):
-		return few
-	}
-	return many
 }

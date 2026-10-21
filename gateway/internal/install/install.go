@@ -1,5 +1,5 @@
-// Pakiet install zakłada i usuwa instalację bramy: użytkowników, katalogi,
-// prywatne CA, konfigurację startową frps i Caddy oraz jednostki systemd.
+// Package install sets up and removes the gateway installation: users, directories,
+// the private CA, the frps and Caddy startup configuration and the systemd units.
 package install
 
 import (
@@ -23,7 +23,7 @@ import (
 	"github.com/k18k/entrypoint/gateway/internal/spec"
 )
 
-// Options to parametry instalacji.
+// Options are the installation parameters.
 type Options struct {
 	Config     config.Config
 	ConfigPath string
@@ -76,8 +76,8 @@ func ensureUser(name string) error {
 
 type dir struct {
 	path  string
-	owner string // użytkownik ("" = root)
-	group string // grupa ("" = root)
+	owner string // user ("" = root)
+	group string // group ("" = root)
 	mode  os.FileMode
 }
 
@@ -125,33 +125,33 @@ func exists(p string) bool {
 	return err == nil
 }
 
-// Install zakłada instalację. Ponowne wywołanie nie niszczy danych ani CA.
+// Install sets up the installation. Running it again destroys neither data nor the CA.
 func Install(o Options) error {
 	if os.Geteuid() != 0 {
-		return errors.New("instalacja wymaga uprawnień root (sudo)")
+		return errors.New("install requires root (sudo)")
 	}
 	if !exists("/run/systemd/system") {
-		return errors.New("wspierany jest wyłącznie system z systemd")
+		return errors.New("only systems with systemd are supported")
 	}
 	if !exists(filepath.Join(config.OptDir, "current", "bin", "caddy")) {
-		return errors.New("brak programów w /opt/entrypoint/current; najpierw uruchom install.sh")
+		return errors.New("no programs in /opt/entrypoint/current; run install.sh first")
 	}
 	out := o.Out
 	cfg := o.Config
 
-	// Istniejąca konfiguracja ma pierwszeństwo dla nazwy bramy (zmiana wymaga nowego certyfikatu).
+	// The existing configuration wins for the gateway name (changing it needs a new certificate).
 	if prev, err := config.Load(o.ConfigPath); err == nil {
 		if cfg.GatewayName != "" && cfg.GatewayName != prev.GatewayName {
-			return fmt.Errorf("brama jest już zainstalowana jako %s; zmiana nazwy nie jest obsługiwana w v0.1", prev.GatewayName)
+			return fmt.Errorf("the gateway is already installed as %s; renaming is not supported in v0.1", prev.GatewayName)
 		}
 		cfg.GatewayName = prev.GatewayName
-		fmt.Fprintf(out, "Istniejąca instalacja %s: aktualizuję usługi, dane zostają.\n", prev.GatewayName)
+		fmt.Fprintf(out, "Existing installation %s: updating services, data is kept.\n", prev.GatewayName)
 	}
 	if err := cfg.Check(); err != nil {
 		return err
 	}
 	if _, err := spec.NormalizeHost(cfg.GatewayName); err != nil || strings.HasPrefix(cfg.GatewayName, "*.") {
-		return fmt.Errorf("--gateway-name musi być nazwą DNS bramy, np. tunnel.example.com")
+		return fmt.Errorf("--gateway-name must be the gateway's DNS name, e.g. tunnel.example.com")
 	}
 
 	for _, u := range []string{config.UserDaemon, config.UserCaddy, config.UserFrps} {
@@ -159,7 +159,7 @@ func Install(o Options) error {
 			return err
 		}
 	}
-	// entrypointd potrzebuje socketu admin Caddy i zapisuje certyfikat czytany przez frps.
+	// entrypointd needs Caddy's admin socket and writes the certificate frps reads.
 	if err := run("usermod", "-a", "-G", config.UserCaddy+","+config.UserFrps, config.UserDaemon); err != nil {
 		return err
 	}
@@ -172,7 +172,7 @@ func Install(o Options) error {
 		{filepath.Join(dd, "ca"), config.UserDaemon, config.UserDaemon, 0o700},
 		{filepath.Join(dd, "state"), config.UserDaemon, config.UserDaemon, 0o700},
 		{filepath.Join(dd, "secrets"), "", config.UserDaemon, 0o750},
-		// setgid: nowe pliki dziedziczą grupę procesu, który je czyta.
+		// setgid: new files inherit the group of the process that reads them.
 		{cfg.TunnelDir(), config.UserDaemon, config.UserFrps, os.ModeSetgid | 0o750},
 		{cfg.CaddyDir(), config.UserDaemon, config.UserCaddy, os.ModeSetgid | 0o750},
 		{cfg.CaddyStorage(), config.UserCaddy, config.UserCaddy, 0o700},
@@ -181,7 +181,7 @@ func Install(o Options) error {
 	}
 	for _, d := range dirs {
 		if err := ensureDir(d); err != nil {
-			return fmt.Errorf("katalog %s: %w", d.path, err)
+			return fmt.Errorf("directory %s: %w", d.path, err)
 		}
 	}
 
@@ -189,7 +189,7 @@ func Install(o Options) error {
 		return err
 	}
 
-	// Prywatne CA (klucz tylko na serwerze, 0600) i certyfikat portu tunelu.
+	// Private CA (key only on the server, 0600) and the tunnel port certificate.
 	if !exists(cfg.CAKey()) {
 		ca, keyPEM, err := pki.NewCA("entrypoint CA " + cfg.GatewayName)
 		if err != nil {
@@ -201,7 +201,7 @@ func Install(o Options) error {
 		if err := writeOwned(cfg.CACert(), ca.CertPEM, 0o644, config.UserDaemon, config.UserDaemon); err != nil {
 			return err
 		}
-		fmt.Fprintln(out, "Utworzono prywatne CA tunelu.")
+		fmt.Fprintln(out, "Created the private tunnel CA.")
 	}
 	if !exists(cfg.TunnelCert()) {
 		ca, err := pki.LoadCA(cfg.CACert(), cfg.CAKey())
@@ -218,7 +218,7 @@ func Install(o Options) error {
 		if err := writeOwned(cfg.TunnelCert(), certPEM, 0o644, config.UserDaemon, config.UserFrps); err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "Wystawiono certyfikat portu tunelu dla %s.\n", cfg.GatewayName)
+		fmt.Fprintf(out, "Issued the tunnel port certificate for %s.\n", cfg.GatewayName)
 	}
 	if !exists(cfg.TunnelReloadTrigger()) {
 		if err := writeOwned(cfg.TunnelReloadTrigger(), []byte("init\n"), 0o644, config.UserDaemon, config.UserFrps); err != nil {
@@ -226,7 +226,7 @@ func Install(o Options) error {
 		}
 	}
 
-	// Hasło lokalnego API frps (stan replik dla entrypointd).
+	// Password of the local frps API (replica state for entrypointd).
 	if !exists(cfg.FrpsAPIPasswordFile()) {
 		b := make([]byte, 24)
 		if _, err := rand.Read(b); err != nil {
@@ -248,7 +248,7 @@ func Install(o Options) error {
 		return err
 	}
 
-	// Plik startowy Caddy: tylko przy pierwszej instalacji; potem utrzymuje go entrypointd.
+	// Caddy startup file: only on the first install; entrypointd maintains it afterwards.
 	if !exists(cfg.CaddyConfig()) {
 		empty := &spec.Spec{}
 		empty.Normalize()
@@ -276,7 +276,7 @@ func Install(o Options) error {
 	if err := run("systemctl", "enable", "entrypoint.target", "entrypointd.socket", "entrypointd.service", "entrypoint-caddy.service", "entrypoint-frps.service", "entrypoint-frps-reload.path"); err != nil {
 		return err
 	}
-	// Restart podnosi nowe programy po ponownej instalacji; przy pierwszej po prostu startuje.
+	// Restarting picks up new programs after a reinstall; on the first install it just starts them.
 	_ = run("systemctl", "stop", "entrypointd.service", "entrypointd.socket")
 	if err := run("systemctl", "restart", "entrypoint.target", "entrypointd.socket", "entrypointd.service", "entrypoint-caddy.service", "entrypoint-frps.service", "entrypoint-frps-reload.path"); err != nil {
 		return err
@@ -294,10 +294,10 @@ func waitHealthy(cfg config.Config, timeout time.Duration) error {
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
-	return errors.New("usługi nie wystartowały w czasie; sprawdź: entrypoint logs entrypointd")
+	return errors.New("the services did not start in time; check: entrypoint logs entrypointd")
 }
 
-// FrpsConfig renderuje konfigurację startową frps.
+// FrpsConfig renders the frps startup configuration.
 func FrpsConfig(cfg config.Config, apiPassword string) ([]byte, error) {
 	host, portS, _ := strings.Cut(cfg.FrpsAPI, ":")
 	apiPort, _ := strconv.Atoi(portS)

@@ -1,4 +1,4 @@
-// entrypoint-connector: konektor tunelu nad oficjalną binarką frpc.
+// entrypoint-connector: the tunnel connector around the official frpc binary.
 //
 //	ENTRYPOINT_CONNECT=... entrypoint-connector tunnel --service api --upstream http://127.0.0.1:3000
 package main
@@ -21,7 +21,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "użycie: entrypoint-connector tunnel|rebundle|version [opcje]")
+		fmt.Fprintln(os.Stderr, "usage: entrypoint-connector tunnel|rebundle|version [options]")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -32,7 +32,7 @@ func main() {
 	case "version", "--version":
 		fmt.Println(version.Version)
 	default:
-		fmt.Fprintf(os.Stderr, "nieznane polecenie %q\n", os.Args[1])
+		fmt.Fprintf(os.Stderr, "unknown command %q\n", os.Args[1])
 		os.Exit(2)
 	}
 }
@@ -44,29 +44,29 @@ func fail(msg string) int {
 
 func tunnel(args []string) int {
 	fs := flag.NewFlagSet("tunnel", flag.ContinueOnError)
-	service := fs.String("service", "", "serwis (domyślnie z pakietu połączenia)")
-	upstream := fs.String("upstream", "", "lokalny adres aplikacji, np. http://127.0.0.1:3000")
-	health := fs.String("health", "", "ścieżka health checku HTTP, np. /health (domyślnie TCP)")
-	interval := fs.Int("health-interval", 2, "interwał health checku w sekundach")
-	maxFail := fs.Int("health-max-failed", 2, "liczba nieudanych sprawdzeń do wycofania repliki")
-	drain := fs.Duration("drain-timeout", 30*time.Second, "maksymalny czas drainu")
-	replica := fs.String("replica", "", "nazwa repliki (domyślnie z nazwy hosta)")
-	frpc := fs.String("frpc", "", "ścieżka do frpc (domyślnie obok konektora albo ENTRYPOINT_FRPC)")
-	parentPipe := fs.Bool("parent-pipe", false, "zakończ, gdy zamknie się standardowe wejście (proces rodzica zginął)")
-	insecure := fs.Bool("insecure-dev-skip-verify", false, "TYLKO DEV: nie weryfikuj certyfikatu bramy")
+	service := fs.String("service", "", "service (default: from the connection bundle)")
+	upstream := fs.String("upstream", "", "local app address, e.g. http://127.0.0.1:3000")
+	health := fs.String("health", "", "HTTP health check path, e.g. /health (default: TCP)")
+	interval := fs.Int("health-interval", 2, "health check interval in seconds")
+	maxFail := fs.Int("health-max-failed", 2, "failed checks before the replica is withdrawn")
+	drain := fs.Duration("drain-timeout", 30*time.Second, "maximum drain time")
+	replica := fs.String("replica", "", "replica name (default: from the host name)")
+	frpc := fs.String("frpc", "", "path to frpc (default: next to the connector or ENTRYPOINT_FRPC)")
+	parentPipe := fs.Bool("parent-pipe", false, "exit when standard input closes (the parent process died)")
+	insecure := fs.Bool("insecure-dev-skip-verify", false, "DEV ONLY: do not verify the gateway certificate")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	raw := os.Getenv("ENTRYPOINT_CONNECT")
 	if raw == "" {
-		return fail("brak zmiennej ENTRYPOINT_CONNECT (pakiet z: sudo entrypoint token create --service <nazwa>)")
+		return fail("ENTRYPOINT_CONNECT is not set (get a bundle with: sudo entrypoint token create --service <name>)")
 	}
 	b, err := token.DecodeBundle(raw)
 	if err != nil {
 		return fail(err.Error())
 	}
 	if *upstream == "" {
-		return fail("podaj --upstream, np. http://127.0.0.1:3000")
+		return fail("pass --upstream, e.g. http://127.0.0.1:3000")
 	}
 	c, err := connector.New(connector.Options{
 		Bundle: b, Service: *service, Upstream: *upstream, Health: *health,
@@ -95,16 +95,16 @@ func tunnel(args []string) int {
 		<-sig
 		cmds <- connector.Command{Cmd: "drain"}
 		<-sig
-		fmt.Fprintln(os.Stderr, "entrypoint-connector: drugi sygnał, kończę natychmiast")
+		fmt.Fprintln(os.Stderr, "entrypoint-connector: second signal, exiting now")
 		cancel()
 	}()
 	return c.Run(ctx, cmds)
 }
 
-// rebundle podmienia listę CA w pakiecie połączenia (rotacja CA bez wydawania nowego tokenu).
+// rebundle replaces the CA list in a connection bundle (CA rotation without issuing a new token).
 func rebundle(args []string) int {
 	fs := flag.NewFlagSet("rebundle", flag.ContinueOnError)
-	caFile := fs.String("ca", "", "plik PEM z zaufanymi CA (z: sudo entrypoint ca status --json)")
+	caFile := fs.String("ca", "", "PEM file with trusted CAs (from: sudo entrypoint ca status --json)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -124,7 +124,7 @@ func rebundle(args []string) int {
 		}
 	}
 	if len(cas) == 0 {
-		return fail("plik nie zawiera certyfikatów")
+		return fail("the file contains no certificates")
 	}
 	b.CAs = cas
 	enc, err := b.Encode()

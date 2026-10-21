@@ -1,4 +1,4 @@
-// Pakiet caddyctl rozmawia z admin API Caddy przez lokalny socket unixowy.
+// Package caddyctl talks to the Caddy admin API over a local unix socket.
 package caddyctl
 
 import (
@@ -35,23 +35,23 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte) ([]by
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("admin API Caddy niedostępne: %w", err)
+		return nil, fmt.Errorf("Caddy admin API unavailable: %w", err)
 	}
 	defer resp.Body.Close()
 	out, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 	if resp.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("Caddy odrzucił %s %s (kod %d): %s", method, path, resp.StatusCode, bytes.TrimSpace(out))
+		return nil, fmt.Errorf("Caddy rejected %s %s (status %d): %s", method, path, resp.StatusCode, bytes.TrimSpace(out))
 	}
 	return out, nil
 }
 
-// Load stosuje pełną konfigurację. Caddy stosuje ją atomowo albo zostaje przy poprzedniej.
+// Load applies a full configuration. Caddy applies it atomically or keeps the previous one.
 func (c *Client) Load(ctx context.Context, cfg []byte) error {
 	_, err := c.do(ctx, "POST", "/load", cfg)
 	return err
 }
 
-// Config zwraca bieżącą konfigurację Caddy.
+// Config returns Caddy's current configuration.
 func (c *Client) Config(ctx context.Context) ([]byte, error) {
 	return c.do(ctx, "GET", "/config/", nil)
 }

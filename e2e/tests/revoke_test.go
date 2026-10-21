@@ -1,6 +1,6 @@
 package tests
 
-// Eksperyment 3 i zestaw e2e 7: trwałe odwołanie tokenów (3.1, 3.1b, 3.2, 3.3).
+// Experiment 3 and e2e suite 7: durable token revocation (3.1, 3.1b, 3.2, 3.3).
 
 import (
 	"errors"
@@ -12,7 +12,7 @@ import (
 	h "github.com/k18k/entrypoint/e2e/harness"
 )
 
-// revokeSetup: serwis api z atakującym frpc (token A) i serwis b z repliką przez konektor (token B).
+// revokeSetup: an api service with an attacking frpc (token A) and a service b with a replica through the connector (token B).
 func revokeSetup(t *testing.T, heartbeat int) (*h.Env, string, string, *h.App) {
 	e := apiSetup(t)
 	e.SetDNS(map[string]string{"api.ep.test": h.GatewayIP, "b.ep.test": h.GatewayIP})
@@ -29,7 +29,7 @@ func revokeSetup(t *testing.T, heartbeat int) (*h.Env, string, string, *h.App) {
 	return e, idA, ba.TokenID(), appB
 }
 
-// proxyOnline: niedostępne API frps (restart) oznacza, że proxy nie jest online.
+// proxyOnline: an unavailable frps API (restart) means the proxy is not online.
 func proxyOnline(e *h.Env, name string) bool {
 	m, err := e.TryFrpsProxies(h.Gateway)
 	return err == nil && m[name] == "online"
@@ -46,14 +46,14 @@ func testRevokeSession(t *testing.T, heartbeat int, now bool) {
 	}
 	t0 := time.Now()
 	e.MustEP(args...)
-	e.Eventually(90*time.Second, 250*time.Millisecond, "zerwanie sesji A", func() error {
+	e.Eventually(90*time.Second, 250*time.Millisecond, "session A dropped", func() error {
 		if proxyOnline(e, nameA) {
-			return errors.New("proxy A nadal online")
+			return errors.New("proxy A still online")
 		}
 		return nil
 	})
 	kicked := time.Since(t0)
-	// A nie łączy się ponownie (frpc ponawia logowanie co kilka sekund).
+	// A does not reconnect (frpc retries the login every few seconds).
 	time.Sleep(15 * time.Second)
 	reconnected := proxyOnline(e, nameA)
 	ss := loadB.Stop()
@@ -72,33 +72,33 @@ func testRevokeSession(t *testing.T, heartbeat int, now bool) {
 	if now {
 		mode = "restart frps (--now)"
 	}
-	result(t, "%s, heartbeat A=%d: sesja A zerwana po %s; A połączony ponownie po 30 s: %v; logowania A odrzucane z ep:revoked: %v; ruch B: błędy %d z %d (ostatni po %s), rozłączenia B: %v",
+	result(t, "%s, heartbeat A=%d: session A dropped after %s; A reconnected after 30 s: %v; A logins rejected with ep:revoked: %v; traffic B: errors %d of %d (last after %s), B disconnects: %v",
 		mode, heartbeat, ms(kicked), reconnected, rejected, bad, len(win), ms(gapEnd), st.HasEvent("disconnected"))
 	if reconnected {
-		t.Fatal("odwołany token połączył się ponownie")
+		t.Fatal("the revoked token reconnected")
 	}
 	if now {
 		if gapEnd > 10*time.Second {
-			t.Fatalf("B wrócił dopiero po %s", gapEnd)
+			t.Fatalf("B came back only after %s", gapEnd)
 		}
 	} else if bad > 0 || st.HasEvent("disconnected") {
-		t.Fatal("odwołanie A przerwało B")
+		t.Fatal("revoking A interrupted B")
 	}
 }
 
-// 3.1: klient A (frpc bez konektora, z heartbeat) i B; odwołanie tokenu A.
+// 3.1: client A (frpc without the connector, with heartbeat) and B; revoke token A.
 func TestRevoke_3_1_KickWithPing(t *testing.T) { testRevokeSession(t, 10, false) }
 
-// 3.1: A wyłącza heartbeat (nie współpracuje); brama i tak zrywa sesję.
+// 3.1: A disables heartbeats (uncooperative); the gateway drops the session anyway.
 func TestRevoke_3_1_KickSilentClient(t *testing.T) {
 	h.Experiment(t)
 	testRevokeSession(t, -1, false)
 }
 
-// 3.1 (rezerwowo): natychmiastowe zerwanie restartem frps.
+// 3.1 (fallback): immediate drop by restarting frps.
 func TestRevoke_3_1_KickWithFrpsRestart(t *testing.T) { testRevokeSession(t, 10, true) }
 
-// 3.1b: wybrano odrzucanie Ping, więc mierzymy wpływ długiej niedostępności entrypointd na sesje.
+// 3.1b: Ping rejection was chosen, so measure how a long entrypointd outage affects sessions.
 func TestRevoke_3_1b_LongDaemonOutage(t *testing.T) {
 	h.Experiment(t)
 	e := apiSetup(t)
@@ -107,18 +107,18 @@ func TestRevoke_3_1b_LongDaemonOutage(t *testing.T) {
 	e.WaitHTTPS("https://api.ep.test/whoami", 200)
 	load := e.StartLoad("https://api.ep.test/whoami", 2, 50*time.Millisecond)
 	time.Sleep(2 * time.Second)
-	// Pełna niedostępność: także gniazdo trzymane przez systemd.
+	// Full outage: including the socket held by systemd.
 	e.MustExec(h.Gateway, "systemctl", "stop", "entrypointd.socket", "entrypointd.service")
 	t0 := time.Now()
 	time.Sleep(45 * time.Second)
 	t1 := time.Now()
 	e.MustExec(h.Gateway, "systemctl", "start", "entrypointd.socket", "entrypointd.service")
-	e.Eventually(60*time.Second, 300*time.Millisecond, "replika wraca", func() error {
+	e.Eventually(60*time.Second, 300*time.Millisecond, "replica comes back", func() error {
 		s := a.MustStats()
 		if s.EventTime("healthy") > t1.UnixMilli() {
 			return nil
 		}
-		return errors.New("jeszcze nie")
+		return errors.New("not yet")
 	})
 	back := time.Since(t1)
 	ss := load.Stop()
@@ -132,14 +132,14 @@ func TestRevoke_3_1b_LongDaemonOutage(t *testing.T) {
 	}
 	errs := h.Count(h.Window(ss, t0, time.Now()), func(s h.Sample) bool { return s.Status != 200 })
 	disc := st.EventTime("disconnected")
-	result(t, "entrypointd i gniazdo zatrzymane na 45 s: sesja zerwana po %s, pierwszy błąd ruchu po %s, błędów łącznie %d; po starcie replika zdrowa po %s",
+	result(t, "entrypointd and its socket stopped for 45 s: session dropped after %s, first traffic error after %s, %d errors in total; after the start the replica is healthy after %s",
 		ms(time.Duration(disc-t0.UnixMilli())*time.Millisecond), ms(firstErr), errs, ms(back))
 	if back > 30*time.Second {
-		t.Fatalf("po powrocie entrypointd replika wróciła dopiero po %s", back)
+		t.Fatalf("after entrypointd came back the replica returned only after %s", back)
 	}
 }
 
-// 3.2: odwołanie w trakcie częściowego stosowania rewizji, potem rollback.
+// 3.2: revocation while a revision is partly applied, then a rollback.
 func TestRevoke_3_2_RevokeDuringFailedApply(t *testing.T) {
 	e := apiSetup(t, "--test-apply-delay", "6s")
 	idA, ca := e.Token("api")
@@ -151,14 +151,14 @@ func TestRevoke_3_2_RevokeDuringFailedApply(t *testing.T) {
 		}
 	}
 	e.EPJSON(&before, "status")
-	// Rewizja N: stosowanie zatrzymuje się po zapisie snapshotu (tryb testowy).
+	// Revision N: applying pauses after the snapshot is written (test mode).
 	done := make(chan error, 1)
 	go func() {
 		_, err := e.EP("route", "add", "x.ep.test", "--to", h.UpstreamVPN)
 		done <- err
 	}()
 	time.Sleep(3 * time.Second)
-	// W trakcie: odwołanie tokenu A, nowa sesja C, awaria Caddy.
+	// Meanwhile: revoke token A, a new session C, a Caddy failure.
 	e.MustEP("token", "revoke", idA)
 	c := e.StartApp(h.AppOptions{Container: h.ClientB, Connect: cc, Replica: "c", Wait: true})
 	e.MustExec(h.Gateway, "systemctl", "stop", "entrypoint-caddy")
@@ -171,10 +171,10 @@ func TestRevoke_3_2_RevokeDuringFailedApply(t *testing.T) {
 	}
 	e.EPJSON(&revs, "revision", "list")
 	st := e.Status()
-	// Heartbeat sprawdza sesje wobec przywróconego snapshotu: A zostaje zerwany.
-	e.Eventually(30*time.Second, 300*time.Millisecond, "zerwanie sesji A", func() error {
+	// The heartbeat checks sessions against the restored snapshot: A is dropped.
+	e.Eventually(30*time.Second, 300*time.Millisecond, "session A dropped", func() error {
 		if !a.MustStats().HasEvent("revoked") {
-			return errors.New("A jeszcze połączony")
+			return errors.New("A still connected")
 		}
 		return nil
 	})
@@ -192,32 +192,32 @@ func TestRevoke_3_2_RevokeDuringFailedApply(t *testing.T) {
 		}
 	}
 	reps := e.ReplicaSuffixes("api")
-	result(t, "rewizja %d: status %s (%s); snapshot po rollbacku = rewizja %d (poprzednia %d); token A odwołany po rollbacku: %v, A zerwany: %v; sesja C otwarta w trakcie sprawdzona i nadal aktywna: %v; repliki: %v; błąd CLI: %v",
+	result(t, "revision %d: status %s (%s); snapshot after rollback = revision %d (previous %d); token A revoked after rollback: %v, A dropped: %v; session C opened meanwhile checked and still active: %v; replicas: %v; CLI error: %v",
 		revs[0].Num, revs[0].Status, revs[0].Error, st.Status.AuthzRevision, before.Status.LastApplied.Num, revoked, aStats.HasEvent("revoked"), !cStats.HasEvent("disconnected"), reps, err != nil)
 	if revs[0].Status != "failed" || st.Status.AuthzRevision != before.Status.LastApplied.Num {
-		t.Fatal("rewizja nie została wycofana")
+		t.Fatal("the revision was not rolled back")
 	}
 	if !revoked || !aStats.HasEvent("revoked") {
-		t.Fatal("odwołanie nie przetrwało rollbacku")
+		t.Fatal("the revocation did not survive the rollback")
 	}
 	if strings.Join(reps, ",") != "c" {
-		t.Fatalf("repliki po rollbacku: %v", reps)
+		t.Fatalf("replicas after rollback: %v", reps)
 	}
 }
 
-// 3.3: backup o 10:00, odwołanie o 11:00, utrata maszyny, restore z 10:00.
+// 3.3: backup at 10:00, revocation at 11:00, machine lost, restore from 10:00.
 func TestRevoke_3_3_RestoreInvalidatesTokens(t *testing.T) {
 	e := apiSetup(t)
 	idA, ca := e.Token("api")
 	_, cb := e.Token("api")
 	a := e.StartApp(h.AppOptions{Container: h.ClientA, Connect: ca, Replica: "a", Wait: true})
 	e.WaitHTTPS("https://api.ep.test/whoami", 200)
-	pw := "haslo-backupu-e2e-123"
+	pw := "backup-password-e2e-123"
 	e.MustSh(h.Gateway, "cd /shared && rm -f b.age && ENTRYPOINT_BACKUP_PASSWORD="+pw+" entrypoint backup -o /shared/b.age")
-	e.MustEP("token", "revoke", idA) // „11:00”: odwołanie po backupie
+	e.MustEP("token", "revoke", idA) // "11:00": revocation after the backup
 	a.WaitState("revoked", 60*time.Second)
 	e.StopAllApps()
-	// Utrata maszyny; nowa maszyna pod innym adresem IP, ta sama nazwa bramy.
+	// Machine lost; a new machine at a different IP address, same gateway name.
 	e.StopContainer(h.Gateway)
 	e.SetDNSWithGateway(h.Gateway2IP, map[string]string{"api.ep.test": h.Gateway2IP})
 	e.ResetGateway(h.Gateway2)
@@ -226,7 +226,7 @@ func TestRevoke_3_3_RestoreInvalidatesTokens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Przed pierwszym logowaniem: oba odtworzone tokeny (także B, nieodwołany przed utratą) są unieważnione.
+	// Before the first login: both restored tokens (including B, not revoked before the loss) are invalidated.
 	var toks []struct {
 		ID      string
 		Revoked bool
@@ -239,15 +239,15 @@ func TestRevoke_3_3_RestoreInvalidatesTokens(t *testing.T) {
 	}
 	e.StartApp(h.AppOptions{Container: h.ClientB, Connect: cb, Replica: "b"})
 	var bLog string
-	e.Eventually(30*time.Second, 500*time.Millisecond, "odrzucenie starego tokenu B", func() error {
+	e.Eventually(30*time.Second, 500*time.Millisecond, "old token B rejected", func() error {
 		bLog, _ = e.Sh(h.ClientB, "cat /tmp/app-b.log")
-		if strings.Contains(bLog, "start nie powiódł się") {
+		if strings.Contains(bLog, "start failed") {
 			return nil
 		}
-		return errors.New("aplikacja b jeszcze działa")
+		return errors.New("app b still running")
 	})
 	bHealthy := strings.Contains(bLog, `"tunnelEvent":"healthy"`) || strings.Contains(bLog, `"ready":true`)
-	// Nowy token działa, certyfikat HTTPS z backupu obsługuje ruch pod nowym IP.
+	// A new token works, the HTTPS certificate from the backup serves traffic at the new IP.
 	var res struct {
 		Token struct{ Connect string }
 	}
@@ -256,12 +256,12 @@ func TestRevoke_3_3_RestoreInvalidatesTokens(t *testing.T) {
 	e.Secrets = append(e.Secrets, res.Token.Connect)
 	e.StartApp(h.AppOptions{Container: h.ClientA, Connect: res.Token.Connect, Replica: "n", Wait: true})
 	e.WaitHTTPS("https://api.ep.test/whoami", 200)
-	result(t, "po restore: odtworzone tokeny unieważnione: %v (%d); stary token B odrzucony: %v (zdrowy=%v); nowy token działa pod nowym IP; wyjście restore: %s",
-		allRevoked, len(toks), strings.Contains(bLog, "odwołany"), bHealthy, strings.ReplaceAll(strings.TrimSpace(out), "\n", " | "))
+	result(t, "after restore: restored tokens invalidated: %v (%d); old token B rejected: %v (healthy=%v); new token works at the new IP; restore output: %s",
+		allRevoked, len(toks), strings.Contains(bLog, "revoked"), bHealthy, strings.ReplaceAll(strings.TrimSpace(out), "\n", " | "))
 	if !allRevoked || bHealthy {
-		t.Fatal("odtworzony token zalogował się po restore")
+		t.Fatal("a restored token logged in after restore")
 	}
-	// Sprzątanie: powrót do bramy pod pierwotnym adresem dla kolejnych testów.
+	// Cleanup: go back to the gateway at the original address for the next tests.
 	e.StopContainer(h.Gateway2)
 }
 

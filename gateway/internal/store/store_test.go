@@ -31,37 +31,37 @@ func TestRevisionsPortsRevocations(t *testing.T) {
 		t.Fatal(r1, err)
 	}
 	if _, err := add(0, "b"); !errors.Is(err, ErrConflict) {
-		t.Fatalf("nieaktualne baseRev: %v", err)
+		t.Fatalf("stale baseRev: %v", err)
 	}
 	r2, err := add(1, "b")
 	if err != nil || r2.Spec.ServiceByName("b").Port != 20001 {
 		t.Fatal(err)
 	}
-	// Rewizja failed nie jest głową; port z nieudanej rewizji zostaje zarezerwowany.
+	// A failed revision is not the head; the port from the failed revision stays reserved.
 	st.SetStatus(ctx, 2, StatusFailed, "x")
 	h, _ := st.Head(ctx)
 	if h.Num != 1 {
-		t.Fatalf("głowa %d", h.Num)
+		t.Fatalf("head %d", h.Num)
 	}
 	r3, err := add(1, "c")
 	if err != nil || r3.Spec.ServiceByName("c").Port != 20002 {
-		t.Fatalf("port nie powinien wrócić do puli: %v", err)
+		t.Fatalf("the port must not return to the pool: %v", err)
 	}
 	if _, err := add(3, "d"); err == nil {
-		t.Fatal("pula wyczerpana, a rezerwacja się udała")
+		t.Fatal("pool exhausted, yet the reservation succeeded")
 	}
 	if _, err := st.db.Exec("DELETE FROM ports"); err == nil {
-		t.Fatal("rezerwacje portów usuwalne")
+		t.Fatal("port reservations can be deleted")
 	}
 	st.Revoke(ctx, "t1", "test")
 	if _, err := st.db.Exec("DELETE FROM revocations"); err == nil {
-		t.Fatal("odwołania usuwalne")
+		t.Fatal("revocations can be deleted")
 	}
 	if _, err := st.db.Exec("UPDATE revocations SET token_id = 'x'"); err == nil {
-		t.Fatal("odwołania modyfikowalne")
+		t.Fatal("revocations can be modified")
 	}
 	rv, _ := st.RevokedSet(ctx)
 	if !rv["t1"] {
-		t.Fatal("brak odwołania")
+		t.Fatal("revocation missing")
 	}
 }

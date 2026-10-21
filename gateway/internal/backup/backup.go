@@ -1,8 +1,8 @@
-// Pakiet backup tworzy i odtwarza zaszyfrowane hasłem archiwum stanu bramy.
+// Package backup creates and restores a password-encrypted archive of the gateway's state.
 //
-// Archiwum (tar w kontenerze age/scrypt) zawiera: spójną kopię SQLite, prywatne CA z kluczem,
-// certyfikat portu tunelu, magazyn Caddy (konto ACME, certyfikaty), konfigurację startową
-// i manifest wersji. Logi nie wchodzą do backupu.
+// The archive (tar in an age/scrypt container) holds: a consistent SQLite copy, the private CA with
+// its key, the tunnel port certificate, Caddy's storage (ACME account, certificates), the startup
+// configuration and a version manifest. Logs are not part of the backup.
 package backup
 
 import (
@@ -39,7 +39,7 @@ type Manifest struct {
 	Versions    any       `json:"versions,omitempty"`
 }
 
-// Elementy archiwum: nazwa w archiwum -> ścieżka na dysku.
+// Archive entries: name in the archive -> path on disk.
 func entries(cfg config.Config) map[string]string {
 	return map[string]string{
 		"ca":            filepath.Join(cfg.DataDir, "ca"),
@@ -49,10 +49,10 @@ func entries(cfg config.Config) map[string]string {
 	}
 }
 
-// Create zapisuje backup do w.
+// Create writes a backup to w.
 func Create(ctx context.Context, cfg config.Config, cfgPath, password string, w io.Writer) (*Manifest, error) {
 	if password == "" {
-		return nil, errors.New("hasło backupu nie może być puste")
+		return nil, errors.New("the backup password must not be empty")
 	}
 	tmp, err := os.MkdirTemp("", "ep-backup-")
 	if err != nil {
@@ -60,7 +60,7 @@ func Create(ctx context.Context, cfg config.Config, cfgPath, password string, w 
 	}
 	defer os.RemoveAll(tmp)
 
-	// Kopia SQLite bez zatrzymywania usług (VACUUM INTO na działającej bazie w trybie WAL).
+	// SQLite copy without stopping the services (VACUUM INTO on the live database in WAL mode).
 	st, err := store.Open(cfg.DBPath())
 	if err != nil {
 		return nil, err
@@ -68,7 +68,7 @@ func Create(ctx context.Context, cfg config.Config, cfgPath, password string, w 
 	dbCopy := filepath.Join(tmp, "entrypoint.db")
 	if err := st.Snapshot(ctx, dbCopy); err != nil {
 		st.Close()
-		return nil, fmt.Errorf("kopia bazy: %w", err)
+		return nil, fmt.Errorf("database copy: %w", err)
 	}
 	last, _ := st.LastApplied(ctx)
 	st.Close()
@@ -156,7 +156,7 @@ func addTree(tw *tar.Writer, prefix, root string) error {
 			return tw.WriteHeader(&tar.Header{Name: name + "/", Mode: 0o700, Typeflag: tar.TypeDir, ModTime: time.Now()})
 		}
 		if !d.Type().IsRegular() {
-			return nil // dowiązania i pliki specjalne pomijamy
+			return nil // skip links and special files
 		}
 		if strings.Contains(filepath.Base(p), ".tmp-") {
 			return nil
@@ -165,15 +165,15 @@ func addTree(tw *tar.Writer, prefix, root string) error {
 	})
 }
 
-// Restore odtwarza backup na zainstalowanej bramie. Wszystkie odtworzone tokeny są
-// unieważniane, zanim frps i plugin zaczną przyjmować logowania.
+// Restore restores a backup onto an installed gateway. All restored tokens are
+// invalidated before frps and the plugin start accepting logins.
 func Restore(ctx context.Context, cfgPath, password string, r io.Reader, out io.Writer) (*Manifest, int, error) {
 	if os.Geteuid() != 0 {
-		return nil, 0, errors.New("restore wymaga uprawnień root (sudo)")
+		return nil, 0, errors.New("restore requires root (sudo)")
 	}
 	cur, err := config.Load(cfgPath)
 	if err != nil {
-		return nil, 0, fmt.Errorf("najpierw zainstaluj tę samą wersję bramy (install.sh, entrypoint install): %w", err)
+		return nil, 0, fmt.Errorf("install the same gateway version first (install.sh, entrypoint install): %w", err)
 	}
 	id, err := age.NewScryptIdentity(password)
 	if err != nil {
@@ -181,7 +181,7 @@ func Restore(ctx context.Context, cfgPath, password string, r io.Reader, out io.
 	}
 	ar, err := age.Decrypt(r, id)
 	if err != nil {
-		return nil, 0, errors.New("nie można odszyfrować backupu (złe hasło albo uszkodzony plik)")
+		return nil, 0, errors.New("cannot decrypt the backup (wrong password or corrupted file)")
 	}
 	tmp, err := os.MkdirTemp("", "ep-restore-")
 	if err != nil {
@@ -194,18 +194,18 @@ func Restore(ctx context.Context, cfgPath, password string, r io.Reader, out io.
 	var m Manifest
 	mb, err := os.ReadFile(filepath.Join(tmp, "manifest.json"))
 	if err != nil || json.Unmarshal(mb, &m) != nil || m.Format != Format {
-		return nil, 0, errors.New("backup bez poprawnego manifestu")
+		return nil, 0, errors.New("backup without a valid manifest")
 	}
 	if m.Version != version.Version {
-		return &m, 0, fmt.Errorf("backup pochodzi z wersji %s, zainstalowana jest %s; zainstaluj tę samą wersję", m.Version, version.Version)
+		return &m, 0, fmt.Errorf("the backup comes from version %s, %s is installed; install the same version", m.Version, version.Version)
 	}
 	bcfg, err := config.Load(filepath.Join(tmp, "etc", "entrypoint.json"))
 	if err != nil {
-		return &m, 0, fmt.Errorf("konfiguracja w backupie: %w", err)
+		return &m, 0, fmt.Errorf("configuration in the backup: %w", err)
 	}
 	pinHostFields(&bcfg, cur)
 
-	fmt.Fprintln(out, "Zatrzymuję usługi...")
+	fmt.Fprintln(out, "Stopping services...")
 	_ = exec.Command("systemctl", "stop", "entrypoint-frps.service", "entrypointd.service", "entrypoint-caddy.service").Run()
 
 	dd := bcfg.DataDir
@@ -230,12 +230,12 @@ func Restore(ctx context.Context, cfgPath, password string, r io.Reader, out io.
 		return &m, 0, err
 	}
 
-	// Awaryjny restore: backup nie zna odwołań sprzed utraty maszyny.
+	// Emergency restore: the backup does not know revocations made before the machine was lost.
 	st, err := store.Open(bcfg.DBPath())
 	if err != nil {
 		return &m, 0, err
 	}
-	n, err := st.RevokeAll(ctx, "awaryjny restore z backupu "+m.CreatedAt.Format(time.RFC3339))
+	n, err := st.RevokeAll(ctx, "emergency restore from backup "+m.CreatedAt.Format(time.RFC3339))
 	if err != nil {
 		st.Close()
 		return &m, 0, err
@@ -249,12 +249,12 @@ func Restore(ctx context.Context, cfgPath, password string, r io.Reader, out io.
 		}
 	}
 
-	// Ponowna instalacja ustawia właścicieli i prawa (UID mogą być inne na nowej maszynie),
-	// renderuje konfigurację frps i uruchamia usługi.
+	// Reinstalling sets owners and permissions (UIDs may differ on a new machine),
+	// renders the frps configuration and starts the services.
 	if err := fixOwnership(bcfg); err != nil {
 		return &m, n, err
 	}
-	fmt.Fprintln(out, "Uruchamiam usługi...")
+	fmt.Fprintln(out, "Starting services...")
 	if err := install.Install(install.Options{Config: bcfg, ConfigPath: cfgPath, Out: io.Discard}); err != nil {
 		return &m, n, err
 	}
@@ -269,15 +269,15 @@ func extract(tr *tar.Reader, dest string) error {
 			return nil
 		}
 		if err != nil {
-			return fmt.Errorf("uszkodzone archiwum: %w", err)
+			return fmt.Errorf("corrupted archive: %w", err)
 		}
 		name := filepath.Clean(filepath.FromSlash(h.Name))
 		if filepath.IsAbs(name) || name == ".." || strings.HasPrefix(name, ".."+string(filepath.Separator)) {
-			return fmt.Errorf("niedozwolona ścieżka w archiwum: %s", h.Name)
+			return fmt.Errorf("path not allowed in the archive: %s", h.Name)
 		}
 		p := filepath.Join(dest, name)
 		if !strings.HasPrefix(p, filepath.Clean(dest)+string(filepath.Separator)) {
-			return fmt.Errorf("ścieżka poza katalogiem docelowym: %s", h.Name)
+			return fmt.Errorf("path outside the target directory: %s", h.Name)
 		}
 		switch h.Typeflag {
 		case tar.TypeDir:
@@ -299,7 +299,7 @@ func extract(tr *tar.Reader, dest string) error {
 			f.Close()
 			_ = os.Chmod(p, fs.FileMode(h.Mode).Perm())
 		default:
-			return fmt.Errorf("niedozwolony typ pliku w archiwum: %s", h.Name)
+			return fmt.Errorf("file type not allowed in the archive: %s", h.Name)
 		}
 	}
 }
@@ -346,7 +346,7 @@ func copyTree(src, dst string) error {
 	})
 }
 
-// fixOwnership ustawia właścicieli odtworzonych plików według użytkowników tej maszyny.
+// fixOwnership sets the owners of restored files to this machine's users.
 func fixOwnership(cfg config.Config) error {
 	type own struct{ path, owner, group string }
 	list := []own{

@@ -1,5 +1,5 @@
-// Pakiet store przechowuje stan bramy w SQLite: rewizje konfiguracji,
-// trwałe rezerwacje portów, dziennik odwołań (tylko do dopisywania) i logowania tuneli.
+// Package store keeps the gateway's state in SQLite: configuration revisions,
+// permanent port reservations, the append-only revocation journal and tunnel logins.
 package store
 
 import (
@@ -17,7 +17,7 @@ import (
 	"github.com/k18k/entrypoint/gateway/internal/spec"
 )
 
-// Statusy rewizji.
+// Revision statuses.
 const (
 	StatusPending  = "pending"
 	StatusApplying = "applying"
@@ -25,7 +25,7 @@ const (
 	StatusFailed   = "failed"
 )
 
-var ErrConflict = errors.New("konflikt rewizji bazowej")
+var ErrConflict = errors.New("base revision conflict")
 
 type Store struct{ db *sql.DB }
 
@@ -56,9 +56,9 @@ CREATE TABLE IF NOT EXISTS ports(
   reserved_at TEXT NOT NULL
 );
 CREATE TRIGGER IF NOT EXISTS ports_no_delete BEFORE DELETE ON ports
-BEGIN SELECT RAISE(ABORT, 'rezerwacje portów są trwałe'); END;
+BEGIN SELECT RAISE(ABORT, 'port reservations are permanent'); END;
 CREATE TRIGGER IF NOT EXISTS ports_no_update BEFORE UPDATE ON ports
-BEGIN SELECT RAISE(ABORT, 'rezerwacje portów są trwałe'); END;
+BEGIN SELECT RAISE(ABORT, 'port reservations are permanent'); END;
 CREATE TABLE IF NOT EXISTS revocations(
   seq INTEGER PRIMARY KEY AUTOINCREMENT,
   token_id TEXT NOT NULL,
@@ -67,9 +67,9 @@ CREATE TABLE IF NOT EXISTS revocations(
 );
 CREATE INDEX IF NOT EXISTS revocations_token ON revocations(token_id);
 CREATE TRIGGER IF NOT EXISTS revocations_no_update BEFORE UPDATE ON revocations
-BEGIN SELECT RAISE(ABORT, 'dziennik odwołań jest tylko do dopisywania'); END;
+BEGIN SELECT RAISE(ABORT, 'the revocation journal is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS revocations_no_delete BEFORE DELETE ON revocations
-BEGIN SELECT RAISE(ABORT, 'dziennik odwołań jest tylko do dopisywania'); END;
+BEGIN SELECT RAISE(ABORT, 'the revocation journal is append-only'); END;
 CREATE TABLE IF NOT EXISTS logins(
   token_id TEXT PRIMARY KEY,
   last_login TEXT NOT NULL,
@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS logins(
 );
 `
 
-// Open otwiera bazę i tworzy schemat.
+// Open opens the database and creates the schema.
 func Open(path string) (*Store, error) {
 	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=synchronous(FULL)"
 	db, err := sql.Open("sqlite", dsn)
@@ -90,7 +90,7 @@ func Open(path string) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("schemat bazy: %w", err)
+		return nil, fmt.Errorf("database schema: %w", err)
 	}
 	for _, f := range []string{path, path + "-wal", path + "-shm"} {
 		_ = os.Chmod(f, 0o600)
@@ -102,7 +102,7 @@ func (s *Store) Close() error { return s.db.Close() }
 
 func now() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 
-// Revision to wpis historii konfiguracji.
+// Revision is an entry in the configuration history.
 type Revision struct {
 	Num       int64      `json:"num"`
 	Base      int64      `json:"base"`
@@ -126,7 +126,7 @@ func scanRevision(row interface{ Scan(...any) error }) (*Revision, error) {
 	_ = json.Unmarshal([]byte(diff), &r.Diff)
 	r.Spec = &spec.Spec{}
 	if err := json.Unmarshal([]byte(specJSON), r.Spec); err != nil {
-		return nil, fmt.Errorf("rewizja %d: uszkodzona konfiguracja: %w", r.Num, err)
+		return nil, fmt.Errorf("revision %d: corrupted configuration: %w", r.Num, err)
 	}
 	r.Spec.Normalize()
 	return &r, nil
@@ -134,7 +134,7 @@ func scanRevision(row interface{ Scan(...any) error }) (*Revision, error) {
 
 const revCols = `num, base, author, created_at, summary, diff, spec, status, error, attempts`
 
-// Head zwraca najnowszą rewizję, która nie zakończyła się błędem (bieżący stan oczekiwany).
+// Head returns the newest revision that did not fail (the current desired state).
 func (s *Store) Head(ctx context.Context) (*Revision, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT `+revCols+` FROM revisions WHERE status != 'failed' ORDER BY num DESC LIMIT 1`)
 	r, err := scanRevision(row)
@@ -144,7 +144,7 @@ func (s *Store) Head(ctx context.Context) (*Revision, error) {
 	return r, err
 }
 
-// LastApplied zwraca ostatnią w pełni zastosowaną rewizję.
+// LastApplied returns the last fully applied revision.
 func (s *Store) LastApplied(ctx context.Context) (*Revision, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT `+revCols+` FROM revisions WHERE status = 'applied' ORDER BY num DESC LIMIT 1`)
 	r, err := scanRevision(row)
@@ -180,8 +180,8 @@ func (s *Store) Revisions(ctx context.Context, limit int) ([]*Revision, error) {
 	return out, rows.Err()
 }
 
-// Mutation zmienia konfigurację w transakcji tworzenia rewizji.
-// Dostaje kopię bieżącej konfiguracji i transakcję (do rezerwacji portów).
+// Mutation changes the configuration inside the revision-creating transaction.
+// It gets a copy of the current configuration and the transaction (for port reservations).
 type Mutation func(tx *Tx, s *spec.Spec) (summary string, err error)
 
 type Tx struct {
@@ -189,8 +189,8 @@ type Tx struct {
 	ctx context.Context
 }
 
-// ReservePort trwale rezerwuje pierwszy wolny port z puli dla nowego serwisu.
-// Zwraca identyfikator serwisu i port. Rezerwacja nigdy nie jest zwalniana.
+// ReservePort permanently reserves the first free pool port for a new service.
+// It returns the service ID and the port. A reservation is never released.
 func (t *Tx) ReservePort(name string, start, end int) (int64, int, error) {
 	rows, err := t.tx.QueryContext(t.ctx, `SELECT port FROM ports WHERE port BETWEEN ? AND ? ORDER BY port`, start, end)
 	if err != nil {
@@ -214,7 +214,7 @@ func (t *Tx) ReservePort(name string, start, end int) (int64, int, error) {
 		}
 	}
 	if port == 0 {
-		return 0, 0, errors.New("pula portów serwisów jest wyczerpana")
+		return 0, 0, errors.New("the service port pool is exhausted")
 	}
 	var id int64
 	if err := t.tx.QueryRowContext(t.ctx, `SELECT COALESCE(MAX(service_id), 0) + 1 FROM ports`).Scan(&id); err != nil {
@@ -226,16 +226,16 @@ func (t *Tx) ReservePort(name string, start, end int) (int64, int, error) {
 	return id, port, nil
 }
 
-// Revoke dopisuje odwołanie w tej samej transakcji.
+// Revoke appends a revocation in the same transaction.
 func (t *Tx) Revoke(tokenID, reason string) error {
 	_, err := t.tx.ExecContext(t.ctx, `INSERT INTO revocations(token_id, revoked_at, reason) VALUES(?, ?, ?)`, tokenID, now(), reason)
 	return err
 }
 
-// Validator sprawdza konfigurację przed zapisem (schemat, konflikty, render Caddy).
+// Validator checks the configuration before it is saved (schema, conflicts, Caddy render).
 type Validator func(*spec.Spec) error
 
-// Create tworzy nową rewizję na podstawie bieżącej. baseRev < 0 oznacza „bieżąca głowa”.
+// Create makes a new revision from the current one. baseRev < 0 means "the current head".
 func (s *Store) Create(ctx context.Context, baseRev int64, author string, mut Mutation, validate Validator) (*Revision, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -258,7 +258,7 @@ func (s *Store) Create(ctx context.Context, baseRev int64, author string, mut Mu
 	}
 	headSpec.Normalize()
 	if baseRev >= 0 && baseRev != headNum {
-		return nil, fmt.Errorf("%w: zmiana oparta na rewizji %d, bieżąca to %d", ErrConflict, baseRev, headNum)
+		return nil, fmt.Errorf("%w: change based on revision %d, current is %d", ErrConflict, baseRev, headNum)
 	}
 	next := headSpec.Clone()
 	summary, err := mut(&Tx{tx: tx, ctx: ctx}, next)
@@ -289,7 +289,7 @@ func (s *Store) Create(ctx context.Context, baseRev int64, author string, mut Mu
 	return s.Revision(ctx, num)
 }
 
-// SetStatus zmienia status rewizji.
+// SetStatus changes a revision's status.
 func (s *Store) SetStatus(ctx context.Context, num int64, status, errText string) error {
 	q := `UPDATE revisions SET status = ?, error = ? WHERE num = ?`
 	if status == StatusApplying {
@@ -299,7 +299,7 @@ func (s *Store) SetStatus(ctx context.Context, num int64, status, errText string
 	return err
 }
 
-// Component to stan zastosowania konfiguracji w komponencie.
+// Component is the applied-configuration state of a component.
 type Component struct {
 	Name      string    `json:"name"`
 	Applied   int64     `json:"applied"`
@@ -332,7 +332,7 @@ func (s *Store) Components(ctx context.Context) ([]Component, error) {
 	return out, rows.Err()
 }
 
-// Revocation to wpis dziennika odwołań.
+// Revocation is an entry in the revocation journal.
 type Revocation struct {
 	Seq       int64     `json:"seq"`
 	TokenID   string    `json:"tokenId"`
@@ -340,13 +340,13 @@ type Revocation struct {
 	Reason    string    `json:"reason"`
 }
 
-// Revoke dopisuje odwołanie tokenu.
+// Revoke appends a token revocation.
 func (s *Store) Revoke(ctx context.Context, tokenID, reason string) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO revocations(token_id, revoked_at, reason) VALUES(?, ?, ?)`, tokenID, now(), reason)
 	return err
 }
 
-// RevokedSet zwraca zbiór odwołanych identyfikatorów tokenów.
+// RevokedSet returns the set of revoked token IDs.
 func (s *Store) RevokedSet(ctx context.Context) (map[string]bool, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT token_id FROM revocations`)
 	if err != nil {
@@ -383,7 +383,7 @@ func (s *Store) Revocations(ctx context.Context) ([]Revocation, error) {
 	return out, rows.Err()
 }
 
-// ReservedPorts zwraca wszystkie rezerwacje portów (także usuniętych serwisów).
+// ReservedPorts returns all port reservations (including removed services).
 func (s *Store) ReservedPorts(ctx context.Context) (map[int]string, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT port, service_name FROM ports`)
 	if err != nil {
@@ -402,7 +402,7 @@ func (s *Store) ReservedPorts(ctx context.Context) (map[int]string, error) {
 	return out, rows.Err()
 }
 
-// Login to ostatnie logowanie tunelu danym tokenem.
+// Login is the last tunnel login with a given token.
 type Login struct {
 	TokenID   string    `json:"tokenId"`
 	LastLogin time.Time `json:"lastLogin"`
@@ -456,13 +456,13 @@ func (s *Store) SetMeta(ctx context.Context, key, value string) error {
 	return err
 }
 
-// Snapshot tworzy spójną kopię bazy bez zatrzymywania usług.
+// Snapshot makes a consistent copy of the database without stopping the services.
 func (s *Store) Snapshot(ctx context.Context, dest string) error {
 	_, err := s.db.ExecContext(ctx, `VACUUM INTO ?`, dest)
 	return err
 }
 
-// RevokeAll odwołuje wszystkie tokeny obecne w dowolnej rewizji (awaryjny restore).
+// RevokeAll revokes every token present in any revision (emergency restore).
 func (s *Store) RevokeAll(ctx context.Context, reason string) (int, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT spec FROM revisions`)
 	if err != nil {

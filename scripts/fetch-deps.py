@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Pobiera przypięte binarki Caddy i frp z versions.json, weryfikuje SHA256
-i rozpakowuje je do dist/deps/<os>_<arch>/.
+"""Downloads the pinned Caddy and frp binaries from versions.json, verifies SHA256
+and unpacks them into dist/deps/<os>_<arch>/.
 
-Użycie: scripts/fetch-deps.py [platforma ...]   (domyślnie linux_amd64)
+Usage: scripts/fetch-deps.py [platform ...]   (default: linux_amd64)
 """
 import hashlib
 import io
@@ -17,14 +17,14 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE = os.path.join(ROOT, "dist", "cache")
 DEPS = os.path.join(ROOT, "dist", "deps")
 
-# Które pliki wyciągamy z archiwum danego komponentu.
+# Which files to extract from each component's archive.
 WANTED = {"caddy": ["caddy"], "frp": ["frps", "frpc"]}
 
 
 def fetch(url, sha256):
     # Only official release downloads over HTTPS; integrity is checked by SHA256 below.
     if not url.startswith("https://github.com/"):
-        sys.exit(f"niedozwolony adres pobierania: {url}")
+        sys.exit(f"download URL not allowed: {url}")
     os.makedirs(CACHE, exist_ok=True)
     path = os.path.join(CACHE, url.rsplit("/", 1)[1])
     if os.path.exists(path):
@@ -36,7 +36,7 @@ def fetch(url, sha256):
         data = r.read()
     got = hashlib.sha256(data).hexdigest()
     if got != sha256:
-        sys.exit(f"błędna suma SHA256 dla {url}: {got}, oczekiwano {sha256}")
+        sys.exit(f"wrong SHA256 for {url}: {got}, expected {sha256}")
     with open(path, "wb") as f:
         f.write(data)
     return data
@@ -66,7 +66,7 @@ def extract(data, name, wanted, dest):
                     found.add(base)
     missing = set(wanted) - found
     if missing:
-        sys.exit(f"w {name} brakuje plików: {', '.join(sorted(missing))}")
+        sys.exit(f"{name} is missing files: {', '.join(sorted(missing))}")
 
 
 def main():
@@ -79,8 +79,8 @@ def main():
             asset = versions[comp]["assets"].get(plat)
             if asset is None:
                 if comp == "caddy" and not plat.startswith("linux"):
-                    continue  # Caddy potrzebny tylko na bramie (Linux)
-                sys.exit(f"brak {comp} dla {plat} w versions.json")
+                    continue  # Caddy is only needed on the gateway (Linux)
+                sys.exit(f"no {comp} asset for {plat} in versions.json")
             data = fetch(asset["url"], asset["sha256"])
             extract(data, asset["url"].rsplit("/", 1)[1], wanted, dest)
         print(f"{plat}: {', '.join(sorted(os.listdir(dest)))}")

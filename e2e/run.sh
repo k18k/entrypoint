@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Uruchamia testy e2e w SHARDS równoległych kopiach środowiska (osobne projekty compose,
-# podsieci 10.77.N.0/24 i 10.78.N.0/24). Każda kopia wykonuje swoją część testów
-# (przydział według e2e/durations.json). Po przebiegu aktualizuje durations.json.
+# Runs the e2e tests in SHARDS parallel environment copies (separate compose projects,
+# subnets 10.77.N.0/24 and 10.78.N.0/24). Each copy runs its share of the tests
+# (assigned by e2e/durations.json). After the run it updates durations.json.
 #
 #   e2e/run.sh <e2e|experiments> <shards> <regex -run> [keep]
 set -uo pipefail
@@ -55,13 +55,13 @@ for s in $(seq 0 $((SHARDS - 1))); do
   log="$ART/$MODE-$s.log"
   pass=$(grep -c '^--- PASS' "$log" || true)
   failed=$(grep '^--- FAIL' "$log" || true)
-  echo "kopia $s: zaliczone $pass, kod $st"
+  echo "shard $s: passed $pass, status $st"
   [ -n "$failed" ] && echo "$failed"
   [ "$st" = 0 ] || fail=1
 done
 cat "$ART"/"$MODE"-*.log >"$ART/$MODE.log"
 
-# Czasy testów do przydziału w następnym przebiegu.
+# Test durations used for assignment in the next run.
 python3 - "$REPO" "$MODE" <<'EOF'
 import glob, json, os, re, sys
 repo, mode = sys.argv[1], sys.argv[2]
@@ -80,5 +80,5 @@ json.dump(dict(sorted(d.items())), open(path, "w"), indent=2)
 open(path, "a").write("\n")
 EOF
 
-echo "czas: $(($(date +%s) - start)) s, kopie: $SHARDS, log: e2e/artifacts/$MODE.log"
+echo "time: $(($(date +%s) - start)) s, shards: $SHARDS, log: e2e/artifacts/$MODE.log"
 exit $fail

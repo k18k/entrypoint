@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Składa pliki wydania w dist/release-assets/ i manifest konektora SDK.
+"""Assembles the release files in dist/release-assets/ and the SDK connector manifest.
 
-  scripts/release-assets.py manifest   -> sdk/node/connector.json (adresy i SHA256 binarek)
+  scripts/release-assets.py manifest   -> sdk/node/connector.json (URLs and SHA256 of the binaries)
   scripts/release-assets.py assets     -> dist/release-assets/ + SHA256SUMS
 
-Adresy wskazują wydanie https://github.com/<repo>/releases/download/v<wersja>/.
+The URLs point to the release at https://github.com/<repo>/releases/download/v<version>/.
 """
 import hashlib
 import json
@@ -31,7 +31,7 @@ def sha256(path):
 
 
 def binaries():
-    """(platforma, plik źródłowy, nazwa w wydaniu) dla zbudowanych platform."""
+    """(platform, source file, name in the release) for the built platforms."""
     out = []
     for p in PLATFORMS:
         d = os.path.join(ROOT, "dist", "connector", p)
@@ -59,7 +59,7 @@ def assets():
     os.makedirs(dest)
     files = []
     for name in os.listdir(os.path.join(ROOT, "dist", "release")):
-        # Brama tylko dla linux_amd64 (ARM64 wymaga testów w v0.2.0).
+        # Gateway only for linux_amd64 (ARM64 needs testing in v0.2.0).
         if "_linux_amd64.tar.gz" in name:
             files.append((os.path.join(ROOT, "dist", "release", name), name))
     files.append((os.path.join(ROOT, "scripts", "install.sh"), "install.sh"))

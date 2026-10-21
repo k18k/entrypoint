@@ -1,4 +1,4 @@
-// Pakiet harness steruje środowiskiem e2e z kontenera runner.
+// Package harness drives the e2e environment from the runner container.
 package harness
 
 import (
@@ -25,13 +25,13 @@ import (
 	"time"
 )
 
-// Kopia środowiska (shard): każda ma własny projekt compose, podsieci i nazwy kontenerów,
-// więc kilka kopii działa równolegle. EP_SHARD wybiera kopię, EP_SHARDS to ich liczba.
+// Environment copy (shard): each has its own compose project, subnets and container names,
+// so several copies run in parallel. EP_SHARD picks the copy, EP_SHARDS is their number.
 var (
 	Shard  = envInt("EP_SHARD", 0)
 	Shards = envInt("EP_SHARDS", 1)
-	Net    = fmt.Sprintf("10.77.%d", Shard) // sieć publiczna środowiska
-	Priv   = fmt.Sprintf("10.78.%d", Shard) // sieć prywatna („VPN”)
+	Net    = fmt.Sprintf("10.77.%d", Shard) // the environment's public network
+	Priv   = fmt.Sprintf("10.78.%d", Shard) // private network ("VPN")
 
 	Gateway     = name("gateway")
 	Gateway2    = name("gateway2")
@@ -48,7 +48,7 @@ var (
 	RunnerIP    = Net + ".30"
 	UpstreamIP  = Priv + ".20"
 	UpstreamVPN = UpstreamIP + ":8080"
-	// Sieć publiczna środowiska w Dockerze (dla kontenerów uruchamianych przez testy).
+	// The environment's public Docker network (for containers started by tests).
 	Network = fmt.Sprintf("ep-e2e-%d_epnet", Shard)
 
 	Containers = []string{Gateway, Gateway2, ClientA, ClientB, ClientN22, Attacker, Upstream, ACME, DNS}
@@ -56,7 +56,7 @@ var (
 
 const TunnelName = "tunnel.ep.test"
 
-// Version to wersja z versions.json (nazwa paczki wydania instalowanej w testach).
+// Version is the version from versions.json (the release package name installed in tests).
 var Version = func() string {
 	var v struct {
 		Entrypoint string `json:"entrypoint"`
@@ -68,7 +68,7 @@ var Version = func() string {
 
 func name(s string) string { return fmt.Sprintf("ep%d-%s", Shard, s) }
 
-// IP zwraca adres w sieci publicznej środowiska.
+// IP returns an address in the environment's public network.
 func IP(last int) string { return fmt.Sprintf("%s.%d", Net, last) }
 
 func envInt(k string, def int) int {
@@ -86,34 +86,34 @@ func Repo() string {
 	return filepath.Dir(wd)
 }
 
-// Env to kontekst jednego testu.
+// Env is the context of one test.
 type Env struct {
 	T       *testing.T
 	start   time.Time
-	Secrets []string // wartości, których nie może być w żadnych logach
+	Secrets []string // values that must not appear in any log
 }
 
 var experiments sync.Map
 
-// Experiment oznacza test jako eksperyment: sprawdza zachowanie Caddy albo frp, na którym
-// opiera się specyfikacja, a nie nasz kod. Uruchamia go `make e2e-experiments`, nie `make e2e`.
-// Wywołanie musi poprzedzać h.New.
+// Experiment marks a test as an experiment: it checks Caddy or frp behavior the specification
+// relies on, not our code. `make e2e-experiments` runs it, `make e2e` does not.
+// The call must come before h.New.
 func Experiment(t *testing.T) { experiments.Store(t.Name(), true) }
 
 func New(t *testing.T) *Env {
 	if os.Getenv("EP_E2E") == "" {
-		t.Skip("testy e2e uruchamia `make e2e`")
+		t.Skip("e2e tests run via `make e2e`")
 	}
 	_, exp := experiments.Load(t.Name())
 	only := os.Getenv("EP_EXPERIMENTS") != ""
 	switch {
 	case exp && !only:
-		t.Skip("eksperyment: uruchamia go make e2e-experiments")
+		t.Skip("experiment: run it with make e2e-experiments")
 	case !exp && only:
-		t.Skip("nie jest eksperymentem")
+		t.Skip("not an experiment")
 	}
 	if Shards > 1 && shardOf(t.Name(), exp) != Shard {
-		t.Skip("test przydzielony innej kopii środowiska")
+		t.Skip("test assigned to another environment copy")
 	}
 	e := &Env{T: t, start: time.Now().Add(-time.Second)}
 	kind := "e2e"
@@ -124,8 +124,8 @@ func New(t *testing.T) *Env {
 	return e
 }
 
-// Przydział testów do kopii środowiska: najdłuższe testy (czasy z poprzedniego przebiegu,
-// e2e/durations.json) trafiają kolejno do najmniej obciążonej kopii. Nieznane testy: hash nazwy.
+// Assigning tests to environment copies: the longest tests (times from the previous run,
+// e2e/durations.json) go one by one to the least loaded copy. Unknown tests: name hash.
 type durationEntry struct {
 	Seconds    float64 `json:"seconds"`
 	Experiment bool    `json:"experiment"`
@@ -182,7 +182,7 @@ func shardOf(name string, exp bool) int {
 	return int(h.Sum32() % uint32(Shards))
 }
 
-// Run wykonuje polecenie i zwraca stdout; stderr trafia do błędu.
+// Run runs a command and returns stdout; stderr goes into the error.
 func Run(stdin io.Reader, name string, args ...string) (string, error) {
 	cmd := exec.Command(name, args...)
 	var out, errb bytes.Buffer
@@ -194,7 +194,7 @@ func Run(stdin io.Reader, name string, args ...string) (string, error) {
 	return out.String(), nil
 }
 
-// Exec uruchamia polecenie w kontenerze.
+// Exec runs a command in a container.
 func (e *Env) Exec(container string, args ...string) (string, error) {
 	return Run(nil, "docker", append([]string{"exec", container}, args...)...)
 }
@@ -208,7 +208,7 @@ func (e *Env) MustExec(container string, args ...string) string {
 	return out
 }
 
-// Sh uruchamia skrypt powłoki w kontenerze.
+// Sh runs a shell script in a container.
 func (e *Env) Sh(container, script string) (string, error) {
 	return e.Exec(container, "sh", "-c", script)
 }
@@ -222,7 +222,7 @@ func (e *Env) MustSh(container, script string) string {
 	return out
 }
 
-// WriteFile zapisuje plik w kontenerze przez stdin (bez śladu w argumentach).
+// WriteFile writes a file in a container through stdin (no trace in arguments).
 func (e *Env) WriteFile(container, path, content string, mode string) {
 	e.T.Helper()
 	_, err := Run(strings.NewReader(content), "docker", "exec", "-i", container, "sh", "-c",
@@ -237,11 +237,11 @@ func compose(args ...string) (string, error) {
 	return Run(nil, "docker", append(base, args...)...)
 }
 
-// Eventually ponawia cond, aż zwróci nil albo minie timeout.
+// Eventually retries cond until it returns nil or the timeout passes.
 func (e *Env) Eventually(timeout, every time.Duration, what string, cond func() error) {
 	e.T.Helper()
 	if err := Wait(timeout, every, cond); err != nil {
-		e.T.Fatalf("%s: nie nastąpiło w %s: %v", what, timeout, err)
+		e.T.Fatalf("%s: did not happen within %s: %v", what, timeout, err)
 	}
 }
 
@@ -259,14 +259,14 @@ func Wait(timeout, every time.Duration, cond func() error) error {
 	}
 }
 
-// ResetGateway tworzy kontener bramy od nowa (czysta maszyna z systemd).
+// ResetGateway recreates the gateway container (a clean machine with systemd).
 func (e *Env) ResetGateway(name string) {
 	e.T.Helper()
 	svc := map[string]string{Gateway: "gateway", Gateway2: "gateway2"}[name]
 	if _, err := compose("up", "-d", "--force-recreate", "--no-deps", svc); err != nil {
 		e.T.Fatal(err)
 	}
-	e.Eventually(60*time.Second, 500*time.Millisecond, "systemd w kontenerze "+name, func() error {
+	e.Eventually(60*time.Second, 500*time.Millisecond, "systemd in container "+name, func() error {
 		out, _ := e.Exec(name, "systemctl", "is-system-running")
 		s := strings.TrimSpace(out)
 		if s == "running" || s == "degraded" {
@@ -276,7 +276,7 @@ func (e *Env) ResetGateway(name string) {
 	})
 }
 
-// StopContainer zatrzymuje kontener (np. utrata maszyny).
+// StopContainer stops a container (e.g. a lost machine).
 func (e *Env) StopContainer(name string) {
 	e.T.Helper()
 	if _, err := Run(nil, "docker", "rm", "-f", name); err != nil {
@@ -284,21 +284,21 @@ func (e *Env) StopContainer(name string) {
 	}
 }
 
-// InstallOptions to parametry instalacji bramy w testach.
+// InstallOptions are the gateway install parameters in tests.
 type InstallOptions struct {
 	Container string
 	PublicIP  string
 	Extra     []string
 }
 
-// InstallPrograms uruchamia prawdziwy install.sh z lokalną paczką wydania.
+// InstallPrograms runs the real install.sh with the local release package.
 func (e *Env) InstallPrograms(container string) {
 	e.T.Helper()
 	tarball := fmt.Sprintf("/dist/release/entrypoint_%s_linux_amd64.tar.gz", Version)
 	e.MustSh(container, "ENTRYPOINT_TARBALL="+tarball+" sh /scripts/install.sh")
 }
 
-// Install instaluje bramę: install.sh, potem entrypoint install z Pebble jako CA.
+// Install installs the gateway: install.sh, then entrypoint install with Pebble as the CA.
 func (e *Env) Install(o InstallOptions) {
 	e.T.Helper()
 	if o.Container == "" {
@@ -317,7 +317,7 @@ func (e *Env) Install(o InstallOptions) {
 	e.MustExec(o.Container, args...)
 }
 
-// FreshGateway to najczęstszy początek testu: czysta brama, DNS tylko z nazwą bramy.
+// FreshGateway is the most common test start: a clean gateway, DNS with only the gateway name.
 func (e *Env) FreshGateway(extra ...string) {
 	e.T.Helper()
 	e.SetDNS(map[string]string{})
@@ -325,7 +325,7 @@ func (e *Env) FreshGateway(extra ...string) {
 	e.Install(InstallOptions{Extra: extra})
 }
 
-// EP uruchamia CLI na bramie.
+// EP runs the CLI on the gateway.
 func (e *Env) EP(args ...string) (string, error) {
 	return e.EPOn(Gateway, args...)
 }
@@ -343,7 +343,7 @@ func (e *Env) MustEP(args ...string) string {
 	return out
 }
 
-// EPJSON uruchamia polecenie z --json i dekoduje wynik.
+// EPJSON runs a command with --json and decodes the result.
 func (e *Env) EPJSON(out any, args ...string) {
 	e.T.Helper()
 	s := e.MustEP(append(args, "--json")...)
@@ -352,7 +352,7 @@ func (e *Env) EPJSON(out any, args ...string) {
 	}
 }
 
-// Service tworzy serwis i zwraca jego port.
+// Service creates a service and returns its port.
 func (e *Env) Service(name string, extra ...string) int {
 	e.T.Helper()
 	var res struct {
@@ -362,7 +362,7 @@ func (e *Env) Service(name string, extra ...string) int {
 	return res.Service.Port
 }
 
-// Route dodaje trasę i zwraca jej identyfikator.
+// Route adds a route and returns its ID.
 func (e *Env) Route(hostPrefix string, extra ...string) string {
 	e.T.Helper()
 	var res struct {
@@ -372,7 +372,7 @@ func (e *Env) Route(hostPrefix string, extra ...string) string {
 	return res.Route.ID
 }
 
-// Token wydaje token i zwraca (id, ENTRYPOINT_CONNECT). Pakiet trafia na listę sekretów.
+// Token issues a token and returns (id, ENTRYPOINT_CONNECT). The bundle goes on the secrets list.
 func (e *Env) Token(service string) (string, string) {
 	e.T.Helper()
 	var res struct {
@@ -383,7 +383,7 @@ func (e *Env) Token(service string) (string, string) {
 	}
 	e.EPJSON(&res, "token", "create", "--service", service)
 	if res.Token.Connect == "" {
-		e.T.Fatal("brak ENTRYPOINT_CONNECT w odpowiedzi")
+		e.T.Fatal("no ENTRYPOINT_CONNECT in the response")
 	}
 	e.Secrets = append(e.Secrets, res.Token.Connect, TokenFromBundle(res.Token.Connect))
 	return res.Token.ID, res.Token.Connect
@@ -393,7 +393,7 @@ var serialCounter atomic.Int64
 
 func init() { serialCounter.Store(time.Now().Unix() % 1_000_000_000) }
 
-// SetDNS ustawia rekordy A strefy ep.test (oprócz ns i nazwy bramy).
+// SetDNS sets the A records of the ep.test zone (besides ns and the gateway name).
 func (e *Env) SetDNS(records map[string]string) {
 	e.SetDNSWithGateway(GatewayIP, records)
 }
@@ -403,7 +403,7 @@ func (e *Env) SetDNSWithGateway(gatewayIP string, records map[string]string) {
 	serial := serialCounter.Add(1)
 	var b strings.Builder
 	fmt.Fprintf(&b, "$ORIGIN ep.test.\n$TTL 1\n@ IN SOA ns.ep.test. admin.ep.test. %d 60 60 600 1\n@ IN NS ns.ep.test.\nns IN A %s\ntunnel IN A %s\n", serial, DNSIP, gatewayIP)
-	// Rekord kontrolny: jego pojawienie się oznacza, że CoreDNS wczytał tę wersję strefy.
+	// Canary record: once it shows up, CoreDNS has loaded this zone version.
 	fmt.Fprintf(&b, "serial-%d IN A 127.0.0.1\n", serial)
 	names := make([]string, 0, len(records))
 	for n := range records {
@@ -426,7 +426,7 @@ func (e *Env) SetDNSWithGateway(gatewayIP string, records map[string]string) {
 		return (&net.Dialer{}).DialContext(ctx, "udp", DNSIP+":53")
 	}}
 	canary := fmt.Sprintf("serial-%d.ep.test", serial)
-	e.Eventually(15*time.Second, 100*time.Millisecond, "przeładowanie strefy DNS", func() error {
+	e.Eventually(15*time.Second, 100*time.Millisecond, "DNS zone reload", func() error {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		_, err := r.LookupHost(ctx, canary)
@@ -434,12 +434,12 @@ func (e *Env) SetDNSWithGateway(gatewayIP string, records map[string]string) {
 	})
 }
 
-// RunDir zwraca katalog roboczy tej kopii środowiska (e2e/.run/<shard>/<nazwa>).
+// RunDir returns this environment copy's working directory (e2e/.run/<shard>/<name>).
 func RunDir(name string) string {
 	return filepath.Join(Repo(), "e2e", ".run", strconv.Itoa(Shard), name)
 }
 
-// PebbleRoots zwraca bieżące korzenie Pebble (zmieniają się przy każdym starcie Pebble).
+// PebbleRoots returns Pebble's current roots (they change on every Pebble start).
 func PebbleRoots() (*x509.CertPool, error) {
 	minica, err := os.ReadFile(filepath.Join(Repo(), "e2e", "pebble", "pebble.minica.pem"))
 	if err != nil {
@@ -464,7 +464,7 @@ func PebbleRoots() (*x509.CertPool, error) {
 	return pool, nil
 }
 
-// HTTPClient zwraca klienta ufającego wyłącznie Pebble (jak przeglądarka ufa Let's Encrypt).
+// HTTPClient returns a client that trusts only Pebble (like a browser trusts Let's Encrypt).
 func (e *Env) HTTPClient() *http.Client {
 	e.T.Helper()
 	pool, err := PebbleRoots()
@@ -482,7 +482,7 @@ func (e *Env) HTTPClient() *http.Client {
 	}
 }
 
-// WaitHTTPS czeka, aż host odpowie przez HTTPS z ważnym certyfikatem.
+// WaitHTTPS waits until the host answers over HTTPS with a valid certificate.
 func (e *Env) WaitHTTPS(url string, wantStatus int) {
 	e.T.Helper()
 	c := e.HTTPClient()
@@ -494,7 +494,7 @@ func (e *Env) WaitHTTPS(url string, wantStatus int) {
 		io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 		if resp.StatusCode != wantStatus {
-			return fmt.Errorf("kod %d", resp.StatusCode)
+			return fmt.Errorf("status %d", resp.StatusCode)
 		}
 		return nil
 	})
@@ -502,7 +502,7 @@ func (e *Env) WaitHTTPS(url string, wantStatus int) {
 
 var bundleTokenRe = regexp.MustCompile(`"token":"(ept_[^"]+)"`)
 
-// TokenFromBundle wyciąga token z pakietu (do wyszukiwania wycieków w logach).
+// TokenFromBundle extracts the token from a bundle (to search logs for leaks).
 func TokenFromBundle(b string) string {
 	raw := strings.TrimPrefix(b, "epc1.")
 	dec, err := decodeB64(raw)
@@ -520,7 +520,7 @@ func safeName(s string) string {
 	return regexp.MustCompile(`[^A-Za-z0-9_.-]+`).ReplaceAllString(s, "_")
 }
 
-// collect zapisuje artefakty testu: logi kontenerów i usług, konfiguracje Caddy i frps, stan bazy, wynik.
+// collect saves the test's artifacts: container and service logs, Caddy and frps configs, database state, result.
 func (e *Env) collect(kind string) {
 	dir := filepath.Join(Repo(), "e2e", "artifacts", safeName(e.T.Name()))
 	_ = os.RemoveAll(dir)
@@ -554,7 +554,7 @@ func (e *Env) collect(kind string) {
 			_ = os.WriteFile(filepath.Join(dir, gw+"-caddy.json"), []byte(out), 0o644)
 		}
 		if out, err := e.Exec(gw, "cat", "/var/lib/entrypoint/frps/frps.json"); err == nil {
-			out = regexp.MustCompile(`"password": "[^"]*"`).ReplaceAllString(out, `"password": "[ukryte]"`)
+			out = regexp.MustCompile(`"password": "[^"]*"`).ReplaceAllString(out, `"password": "[redacted]"`)
 			_ = os.WriteFile(filepath.Join(dir, gw+"-frps.json"), []byte(out), 0o644)
 		}
 		if out, err := e.Exec(gw, "sqlite3", "-readonly", "/var/lib/entrypoint/db/entrypoint.db",

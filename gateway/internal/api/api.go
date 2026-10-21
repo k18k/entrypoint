@@ -1,5 +1,5 @@
-// Pakiet api definiuje typy API entrypointd i klienta używanego przez CLI.
-// API jest dostępne wyłącznie przez lokalny socket unixowy.
+// Package api defines the entrypointd API types and the client used by the CLI.
+// The API is available only over a local unix socket.
 package api
 
 import (
@@ -16,7 +16,7 @@ import (
 	"github.com/k18k/entrypoint/gateway/internal/store"
 )
 
-// ChangeResult to wynik polecenia zmieniającego konfigurację.
+// ChangeResult is the result of a command that changes the configuration.
 type ChangeResult struct {
 	Revision *store.Revision `json:"revision,omitempty"`
 	Applied  bool            `json:"applied"`
@@ -59,7 +59,7 @@ type RouteInfo struct {
 type TokenCreated struct {
 	ID      string `json:"id"`
 	Service string `json:"service"`
-	Connect string `json:"connect"` // ENTRYPOINT_CONNECT, zwracany tylko raz
+	Connect string `json:"connect"` // ENTRYPOINT_CONNECT, returned only once
 }
 
 type TokenInfo struct {
@@ -110,7 +110,7 @@ type CertInfo struct {
 	Issuer      string    `json:"issuer,omitempty"`
 }
 
-// Żądania.
+// Requests.
 type ServiceAdd struct {
 	Name    string `json:"name"`
 	Health  string `json:"health,omitempty"`
@@ -146,7 +146,7 @@ type CARotate struct {
 	Step string `json:"step"` // start, switch, finish
 }
 
-// Error to błąd zwracany przez API.
+// Error is an error returned by the API.
 type Error struct {
 	Status  int           `json:"-"`
 	Message string        `json:"error"`
@@ -155,7 +155,7 @@ type Error struct {
 
 func (e *Error) Error() string { return e.Message }
 
-// Client to klient API przez socket unixowy.
+// Client is an API client over a unix socket.
 type Client struct {
 	http *http.Client
 }
@@ -186,14 +186,14 @@ func (c *Client) Do(ctx context.Context, method, path string, in, out any) error
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("brak połączenia z entrypointd (czy usługa działa i czy masz uprawnienia, np. sudo?): %w", err)
+		return fmt.Errorf("cannot reach entrypointd (is the service running and do you have permission, e.g. sudo?): %w", err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode/100 != 2 {
 		e := &Error{Status: resp.StatusCode}
 		if json.Unmarshal(raw, e) != nil || e.Message == "" {
-			e.Message = fmt.Sprintf("entrypointd: kod %d", resp.StatusCode)
+			e.Message = fmt.Sprintf("entrypointd: status %d", resp.StatusCode)
 		}
 		return e
 	}

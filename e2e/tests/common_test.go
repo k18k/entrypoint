@@ -17,7 +17,7 @@ import (
 	h "github.com/k18k/entrypoint/e2e/harness"
 )
 
-// apiSetup: czysta brama, serwis api z health checkiem, trasa api.ep.test.
+// apiSetup: a clean gateway, an api service with a health check, an api.ep.test route.
 func apiSetup(t *testing.T, extra ...string) *h.Env {
 	e := h.New(t)
 	e.StopAllApps()
@@ -31,7 +31,7 @@ func apiSetup(t *testing.T, extra ...string) *h.Env {
 
 func result(t *testing.T, f string, a ...any) {
 	t.Helper()
-	t.Logf("WYNIK: "+f, a...)
+	t.Logf("RESULT: "+f, a...)
 }
 
 func get(c *http.Client, url string) (int, string, error) {
@@ -50,7 +50,7 @@ func replicaOf(body string) string {
 	return v.Replica
 }
 
-// slowReader dostarcza n bajtów losowych danych z ograniczoną prędkością.
+// slowReader yields n bytes of random data at a limited rate.
 type slowReader struct {
 	left, rate, sent int
 	start            time.Time
@@ -69,7 +69,7 @@ func (r *slowReader) Read(p []byte) (int, error) {
 	if r.start.IsZero() {
 		r.start = time.Now()
 	}
-	// Czekamy, aż średnia prędkość spadnie do zadanej.
+	// Wait until the average rate drops to the target.
 	due := r.start.Add(time.Duration(float64(r.sent) / float64(r.rate) * float64(time.Second)))
 	if d := time.Until(due); d > 0 {
 		time.Sleep(d)

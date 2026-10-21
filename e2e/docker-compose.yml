@@ -1,6 +1,6 @@
-# Środowisko e2e (sekcja 18 specyfikacji). Uruchamiane przez `make e2e`.
-# Obrazy buduje `make e2e-build`. REPO to bezwzględna ścieżka repozytorium; runner widzi ją pod tą samą ścieżką,
-# żeby mógł sterować kontenerami przez docker compose.
+# e2e environment (spec section 18). Run by `make e2e`.
+# Images are built by `make e2e-build`. REPO is the absolute repository path; the runner sees it at the same path,
+# so it can drive the containers through docker compose.
 name: ep-e2e-${SHARD:-0}
 
 x-client: &client
@@ -52,7 +52,7 @@ services:
       epnet: { ipv4_address: "${NET:-10.77.0}.10" }
       privnet: { ipv4_address: "${PRIV:-10.78.0}.10" }
 
-  # Druga maszyna bramy: restore pod nowym adresem IP przy stałej nazwie bramy.
+  # Second gateway machine: restore under a new IP address with the same gateway name.
   gateway2:
     <<: *gateway
     container_name: ep${SHARD:-0}-gateway2
@@ -67,7 +67,7 @@ services:
     container_name: ep${SHARD:-0}-upstream
     command: ["testsrv", "-addr", ":8080", "-name", "vpn-upstream"]
     networks:
-      # Osiągalny wyłącznie z bramy, jak usługa za VPN.
+      # Reachable only from the gateway, like a service behind a VPN.
       privnet: { ipv4_address: "${PRIV:-10.78.0}.20" }
 
   client-a:
@@ -84,7 +84,7 @@ services:
     networks:
       epnet: { ipv4_address: "${NET:-10.77.0}.22" }
 
-  # Macierz SDK: Node 22 i Express 4.
+  # SDK matrix: Node 22 and Express 4.
   client-n22:
     <<: *client
     image: ep-e2e-client-node22
@@ -137,6 +137,6 @@ networks:
       config: [{ subnet: "${PRIV:-10.78.0}.0/24" }]
 
 volumes:
-  # Wspólna pamięć podręczna Go dla wszystkich kopii (tworzy ją Makefile, nie usuwa e2e-down).
+  # Shared Go cache for all shards (created by the Makefile, not removed by e2e-down).
   ep-e2e-gocache:
     external: true

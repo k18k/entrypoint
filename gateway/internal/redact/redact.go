@@ -1,5 +1,5 @@
-// Pakiet redact maskuje sekrety w tekście trafiającym do logów i komunikatów.
-// To druga linia obrony: kod i tak nie powinien przekazywać sekretów do logów.
+// Package redact masks secrets in text that goes to logs and messages.
+// It is a second line of defense: code should not pass secrets to logs in the first place.
 package redact
 
 import (
@@ -14,15 +14,15 @@ var patterns = []*regexp.Regexp{
 	regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----`),
 }
 
-// String zwraca tekst z zamaskowanymi sekretami.
+// String returns the text with secrets masked.
 func String(s string) string {
 	for _, p := range patterns {
-		s = p.ReplaceAllString(s, "[ukryte]")
+		s = p.ReplaceAllString(s, "[redacted]")
 	}
 	return s
 }
 
-// Handler opakowuje slog.Handler i maskuje sekrety w komunikatach i wartościach tekstowych.
+// Handler wraps a slog.Handler and masks secrets in messages and string values.
 type Handler struct{ slog.Handler }
 
 func (h Handler) Handle(ctx context.Context, r slog.Record) error {

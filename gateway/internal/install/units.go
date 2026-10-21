@@ -11,7 +11,7 @@ import (
 
 const unitDir = "/etc/systemd/system"
 
-// UnitNames to wszystkie jednostki instalacji.
+// UnitNames are all units of the installation.
 var UnitNames = []string{
 	"entrypoint.target",
 	"entrypointd.socket",
@@ -39,14 +39,14 @@ LockPersonality=yes
 UMask=0027`
 	return map[string]string{
 		"entrypoint.target": `[Unit]
-Description=Entrypoint: brama publikowania usług
+Description=Entrypoint: service publishing gateway
 Wants=entrypointd.socket entrypointd.service entrypoint-caddy.service entrypoint-frps.service entrypoint-frps-reload.path
 
 [Install]
 WantedBy=multi-user.target
 `,
 		"entrypointd.socket": fmt.Sprintf(`[Unit]
-Description=Entrypoint: gniazdo pluginu frps i zgody TLS (entrypointd)
+Description=Entrypoint: frps plugin and TLS consent socket (entrypointd)
 PartOf=entrypoint.target
 
 [Socket]
@@ -58,7 +58,7 @@ NoDelay=yes
 WantedBy=entrypoint.target sockets.target
 `, cfg.PluginListen),
 		"entrypointd.service": fmt.Sprintf(`[Unit]
-Description=Entrypoint: warstwa sterowania (entrypointd)
+Description=Entrypoint: control plane (entrypointd)
 PartOf=entrypoint.target
 Requires=entrypointd.socket
 After=network-online.target entrypointd.socket
@@ -81,7 +81,7 @@ UMask=0077
 WantedBy=entrypoint.target
 `, config.UserDaemon, config.UserCaddy, config.UserFrps, bin, configPath, dd, hardening),
 		"entrypoint-caddy.service": fmt.Sprintf(`[Unit]
-Description=Entrypoint: Caddy (HTTP i TLS)
+Description=Entrypoint: Caddy (HTTP and TLS)
 PartOf=entrypoint.target
 After=network-online.target
 Wants=network-online.target
@@ -105,7 +105,7 @@ ReadWritePaths=%[5]s
 WantedBy=entrypoint.target
 `, config.UserCaddy, bin, cfg.CaddyConfig(), caddyHome, cfg.CaddyDir(), strings.Replace(hardening, "NoNewPrivileges=yes\n", "", 1)),
 		"entrypoint-frps.service": fmt.Sprintf(`[Unit]
-Description=Entrypoint: frps (tunele)
+Description=Entrypoint: frps (tunnels)
 PartOf=entrypoint.target
 After=network-online.target
 Wants=network-online.target
@@ -123,7 +123,7 @@ LimitNOFILE=1048576
 WantedBy=entrypoint.target
 `, config.UserFrps, bin, cfg.FrpsConfig(), hardening),
 		"entrypoint-frps-reload.path": fmt.Sprintf(`[Unit]
-Description=Entrypoint: restart frps po zmianie certyfikatu portu tunelu
+Description=Entrypoint: restart frps when the tunnel port certificate changes
 PartOf=entrypoint.target
 
 [Path]
@@ -134,7 +134,7 @@ Unit=entrypoint-frps-reload.service
 WantedBy=entrypoint.target
 `, cfg.TunnelReloadTrigger()),
 		"entrypoint-frps-reload.service": `[Unit]
-Description=Entrypoint: restart frps (nowy certyfikat portu tunelu)
+Description=Entrypoint: restart frps (new tunnel port certificate)
 
 [Service]
 Type=oneshot

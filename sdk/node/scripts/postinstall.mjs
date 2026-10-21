@@ -1,6 +1,6 @@
-// Po instalacji SDK pobiera konektor i frpc dla bieżącej platformy z wydania na GitHubie
-// (sumy SHA256 z connector.json). Błąd pobierania nie przerywa instalacji: SDK spróbuje
-// ponownie przy pierwszym tunnel(), a ENTRYPOINT_CONNECTOR pozwala wskazać własną binarkę.
+// After install, the SDK downloads the connector and frpc for the current platform from the GitHub
+// release (SHA256 sums from connector.json). A download failure does not abort the install: the SDK retries
+// on the first tunnel(), and ENTRYPOINT_CONNECTOR lets you point to your own binary.
 import { existsSync } from "node:fs";
 
 const skip =
@@ -14,7 +14,7 @@ if (!skip) {
     await ensureConnector();
   } catch (err) {
     console.warn(
-      `entrypoint: nie pobrano konektora (${err instanceof Error ? err.message : err}); spróbuję przy pierwszym tunelu`,
+      `entrypoint: connector not downloaded (${err instanceof Error ? err.message : err}); will retry on the first tunnel`,
     );
   }
 }

@@ -9,7 +9,7 @@ import (
 	h "github.com/k18k/entrypoint/e2e/harness"
 )
 
-// Podstawowy przepływ: instalacja, serwis, trasa, token, replika z adapterem node:http, żądanie HTTPS.
+// Basic flow: install, service, route, token, replica with the node:http adapter, HTTPS request.
 func TestTunnels_BasicFlow(t *testing.T) {
 	e := h.New(t)
 	e.FreshGateway()
@@ -26,7 +26,7 @@ func TestTunnels_BasicFlow(t *testing.T) {
 	b, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	if !strings.Contains(string(b), `"replica":"a"`) {
-		t.Fatalf("odpowiedź: %s", b)
+		t.Fatalf("response: %s", b)
 	}
 	_ = time.Second
 }

@@ -1,4 +1,4 @@
-// Pakiet frpsapi czyta stan proxy i klientów z lokalnego API frps (127.0.0.1).
+// Package frpsapi reads proxy and client state from the local frps API (127.0.0.1).
 package frpsapi
 
 import (
@@ -40,7 +40,7 @@ type Proxy struct {
 func (c *Client) get(ctx context.Context, path string, out any) error {
 	pw, err := os.ReadFile(c.PasswordFile)
 	if err != nil {
-		return fmt.Errorf("hasło API frps: %w", err)
+		return fmt.Errorf("frps API password: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, "GET", "http://"+c.Addr+path, nil)
 	if err != nil {
@@ -49,16 +49,16 @@ func (c *Client) get(ctx context.Context, path string, out any) error {
 	req.SetBasicAuth(c.User, strings.TrimSpace(string(pw)))
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return fmt.Errorf("API frps niedostępne: %w", err)
+		return fmt.Errorf("frps API unavailable: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("API frps: kod %d", resp.StatusCode)
+		return fmt.Errorf("frps API: status %d", resp.StatusCode)
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
-// TCPProxies zwraca proxy typu tcp znane frps (także offline).
+// TCPProxies returns the tcp proxies frps knows about (including offline ones).
 func (c *Client) TCPProxies(ctx context.Context) ([]Proxy, error) {
 	var out struct {
 		Proxies []Proxy `json:"proxies"`
@@ -69,7 +69,7 @@ func (c *Client) TCPProxies(ctx context.Context) ([]Proxy, error) {
 	return out.Proxies, nil
 }
 
-// Online zwraca tylko aktywne proxy.
+// Online returns only active proxies.
 func (c *Client) Online(ctx context.Context) ([]Proxy, error) {
 	ps, err := c.TCPProxies(ctx)
 	if err != nil {
@@ -84,7 +84,7 @@ func (c *Client) Online(ctx context.Context) ([]Proxy, error) {
 	return out, nil
 }
 
-// ServerInfo sprawdza, czy frps odpowiada.
+// ServerInfo checks that frps responds.
 func (c *Client) ServerInfo(ctx context.Context) (map[string]any, error) {
 	var out map[string]any
 	err := c.get(ctx, "/api/serverinfo", &out)

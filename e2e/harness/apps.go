@@ -12,7 +12,7 @@ import (
 
 func decodeB64(s string) ([]byte, error) { return base64.RawURLEncoding.DecodeString(s) }
 
-// App to aplikacja testowa uruchomiona w kontenerze klienta.
+// App is a test app running in a client container.
 type App struct {
 	e         *Env
 	Container string
@@ -21,22 +21,22 @@ type App struct {
 	Log       string
 }
 
-// AppOptions to parametry aplikacji testowej (apps/server.js).
+// AppOptions are the test app's parameters (apps/server.js).
 type AppOptions struct {
 	Container string
 	Connect   string
 	Service   string
 	Replica   string
-	Mode      string // adapter albo base
+	Mode      string // adapter or base
 	DrainMs   int
 	CtlPort   int
 	Health    string
-	Wait      bool   // czekaj na zdrową rejestrację
-	Unhealthy bool   // start z niezdanym health checkiem
-	Env       string // dodatkowe zmienne środowiska, np. "CONNECT_TO=1 "
+	Wait      bool   // wait for a healthy registration
+	Unhealthy bool   // start with a failing health check
+	Env       string // extra environment variables, e.g. "CONNECT_TO=1 "
 }
 
-// StartApp uruchamia aplikację; pakiet połączenia trafia do pliku 0600, nie do argumentów.
+// StartApp starts the app; the connection bundle goes into a 0600 file, never into arguments.
 func (e *Env) StartApp(o AppOptions) *App {
 	e.T.Helper()
 	if o.Mode == "" {
@@ -75,7 +75,7 @@ func (a *App) url(path string) string {
 	return fmt.Sprintf("http://%s:%d%s", ip, a.CtlPort, path)
 }
 
-// Stats to stan aplikacji testowej.
+// Stats is the test app's state.
 type Stats struct {
 	Replica            string `json:"replica"`
 	Requests           int    `json:"requests"`
@@ -110,12 +110,12 @@ func (a *App) MustStats() Stats {
 	a.e.T.Helper()
 	s, err := a.Stats()
 	if err != nil {
-		a.e.T.Fatalf("stan aplikacji %s: %v", a.Replica, err)
+		a.e.T.Fatalf("app state %s: %v", a.Replica, err)
 	}
 	return s
 }
 
-// HasEvent mówi, czy aplikacja dostała dane zdarzenie tunelu.
+// HasEvent reports whether the app got the given tunnel event.
 func (s Stats) HasEvent(name string) bool {
 	for _, e := range s.Events {
 		if e.Event == name {
@@ -136,7 +136,7 @@ func (s Stats) EventTime(name string) int64 {
 
 func (a *App) WaitState(state string, timeout time.Duration) {
 	a.e.T.Helper()
-	a.e.Eventually(timeout, 300*time.Millisecond, fmt.Sprintf("replika %s w stanie %s", a.Replica, state), func() error {
+	a.e.Eventually(timeout, 300*time.Millisecond, fmt.Sprintf("replica %s in state %s", a.Replica, state), func() error {
 		s, err := a.Stats()
 		if err != nil {
 			return err
@@ -169,7 +169,7 @@ func (a *App) SetHealthy(ok bool) {
 	}
 }
 
-// Drain uruchamia drain repliki (jak SIGTERM w produkcji).
+// Drain starts the replica's drain (like SIGTERM in production).
 func (a *App) Drain(timeoutMs int) {
 	a.e.T.Helper()
 	if err := a.post("/drain", fmt.Sprintf(`{"timeoutMs":%d}`, timeoutMs)); err != nil {
@@ -177,34 +177,34 @@ func (a *App) Drain(timeoutMs int) {
 	}
 }
 
-// Kill9 zabija proces Node (kill -9 rodzica konektora).
+// Kill9 kills the Node process (kill -9 of the connector's parent).
 func (a *App) Kill9() {
 	a.e.T.Helper()
 	a.e.MustSh(a.Container, fmt.Sprintf("kill -9 $(cat /tmp/app-%s.pid)", a.Replica))
 }
 
-// Stop kończy aplikację bez drainu.
+// Stop stops the app without a drain.
 func (a *App) Stop() {
 	_ = a.post("/exit", "{}")
 	time.Sleep(300 * time.Millisecond)
 }
 
-// Running mówi, czy proces Node aplikacji żyje.
+// Running reports whether the app's Node process is alive.
 func (a *App) Running() bool {
 	_, err := a.Stats()
 	return err == nil
 }
 
-// StopAllApps kończy wszystkie aplikacje i konektory w kontenerach klientów.
+// StopAllApps stops all apps and connectors in the client containers.
 func (e *Env) StopAllApps() {
 	for _, c := range []string{ClientA, ClientB, ClientN22, Attacker} {
 		_, _ = e.Sh(c, "pkill -9 -f 'node server.js'; pkill -9 entrypoint-conn; pkill -9 frpc; rm -f /tmp/*.log; true")
 	}
 }
 
-// Procs zwraca liczbę procesów pasujących do wzorca w kontenerze.
+// Procs returns the number of processes matching a pattern in a container.
 func (e *Env) Procs(container, pattern string) int {
-	// pgrep -x po nazwie procesu (comm, maks. 15 znaków), żeby nie liczyć własnej powłoki.
+	// pgrep -x on the process name (comm, max 15 characters), so our own shell is not counted.
 	if len(pattern) > 15 {
 		pattern = pattern[:15]
 	}

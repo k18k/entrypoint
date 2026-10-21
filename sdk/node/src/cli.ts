@@ -3,10 +3,10 @@
 import { parseArgs } from "node:util";
 import { ensureConnector, tunnel, TunnelError } from "./index.js";
 
-const USAGE = `użycie: entrypoint-tunnel tunnel --upstream http://127.0.0.1:3000 [--service <nazwa>]
-       [--health /health] [--drain-timeout 30s] [--replica <nazwa>]
-       entrypoint-tunnel install-connector   (pobiera konektor i frpc dla tej platformy)
-Pakiet połączenia: zmienna ENTRYPOINT_CONNECT.`;
+const USAGE = `usage: entrypoint-tunnel tunnel --upstream http://127.0.0.1:3000 [--service <name>]
+       [--health /health] [--drain-timeout 30s] [--replica <name>]
+       entrypoint-tunnel install-connector   (downloads the connector and frpc for this platform)
+Connection bundle: the ENTRYPOINT_CONNECT variable.`;
 
 function usage(): never {
   console.error(USAGE);
@@ -23,7 +23,7 @@ function parseDuration(s: string): number {
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   if (argv[0] === "install-connector") {
-    console.error(`entrypoint: konektor w ${await ensureConnector()}`);
+    console.error(`entrypoint: connector at ${await ensureConnector()}`);
     return;
   }
   if (argv[0] === "tunnel") argv.shift();
@@ -51,7 +51,7 @@ async function main(): Promise<void> {
     replica: values.replica,
     drainTimeoutMs,
   });
-  console.error(`entrypoint: tunel aktywny (${t.replica})`);
+  console.error(`entrypoint: tunnel active (${t.replica})`);
   t.on("event", (e: { event: string; reason?: string }) => {
     if (["disconnected", "connected", "unhealthy", "revoked", "tls_error"].includes(e.event)) {
       console.error(`entrypoint: ${e.event}${e.reason ? ": " + e.reason : ""}`);

@@ -10,11 +10,11 @@ import (
 	h "github.com/k18k/entrypoint/e2e/harness"
 )
 
-// Konektor jako kontener obok aplikacji (wzorzec z README): ruch, SIGTERM -> drain -> wyjście.
+// The connector as a container next to the app (the README pattern): traffic, SIGTERM -> drain -> exit.
 func TestSDK_DockerSidecar(t *testing.T) {
 	e := apiSetup(t)
 	_, connect := e.Token("api")
-	// Aplikacja w innym kontenerze (tu: prosty serwer w kliencie a), konektor w osobnym kontenerze.
+	// The app in another container (here: a simple server in client a), the connector in its own container.
 	e.MustSh(h.ClientA, `nohup node -e "require('http').createServer((q,s)=>{s.end(JSON.stringify({replica:'sidecar'}))}).listen(9100,'0.0.0.0')" > /tmp/sidecar-app.log 2>&1 &`)
 	sidecar := fmt.Sprintf("ep%d-sidecar", h.Shard)
 	_, _ = h.Run(nil, "docker", "rm", "-f", sidecar)
@@ -35,12 +35,12 @@ func TestSDK_DockerSidecar(t *testing.T) {
 	code, _ := h.Run(nil, "docker", "inspect", "-f", "{{.State.ExitCode}}", sidecar)
 	logs, _ := h.Run(nil, "docker", "logs", sidecar)
 	cl := strings.Count(logs, connect)
-	result(t, "kontener konektora (użytkownik %s): odpowiedź %s; docker stop -> drain i wyjście po %s, kod %s; pakiet w logach kontenera: %d",
+	result(t, "connector container (user %s): response %s; docker stop -> drain and exit after %s, status %s; bundle in container logs: %d",
 		user, strings.TrimSpace(body), ms(stopped), strings.TrimSpace(code), cl)
 	if replicaOf(body) != "sidecar" || strings.TrimSpace(code) != "0" || stopped > 15*time.Second || cl > 0 {
-		t.Fatal("konektor w kontenerze nie działa zgodnie z README")
+		t.Fatal("the containerized connector does not work as the README says")
 	}
 	if !strings.Contains(logs, `"event":"withdrawn"`) {
-		t.Fatal(errors.New("brak wycofania z grupy przy docker stop"))
+		t.Fatal(errors.New("no withdrawal from the group on docker stop"))
 	}
 }

@@ -1,6 +1,6 @@
 package tests
 
-// Zestaw e2e 2: TLS i ACME (Pebble zamiast Let's Encrypt).
+// e2e suite 2: TLS and ACME (Pebble instead of Let's Encrypt).
 
 import (
 	"crypto/tls"
@@ -41,19 +41,19 @@ func TestTLS_CertificateAfterDNSRecord(t *testing.T) {
 	dnsOut, dnsErr := e.EP("dns", "check")
 	e.SetDNS(map[string]string{"late.ep.test": h.GatewayIP})
 	t0 := time.Now()
-	e.Eventually(120*time.Second, time.Second, "certyfikat po pojawieniu się rekordu", func() error {
+	e.Eventually(120*time.Second, time.Second, "certificate after the record shows up", func() error {
 		_, _, err := peerCert("late.ep.test")
 		return err
 	})
 	took := time.Since(t0)
 	dnsOut2, dnsErr2 := e.EP("dns", "check")
-	result(t, "przed rekordem DNS: certyfikat=%v (dns check błąd=%v); po dodaniu rekordu certyfikat Pebble po %s; dns check po: błąd=%v",
+	result(t, "before the DNS record: certificate=%v (dns check error=%v); after adding the record a Pebble certificate after %s; dns check after: error=%v",
 		errBefore == nil, dnsErr != nil, ms(took), dnsErr2 != nil)
 	if errBefore == nil || dnsErr == nil || dnsErr2 != nil {
 		t.Fatalf("dns check:\n%s\n%s", dnsOut, dnsOut2)
 	}
-	if !strings.Contains(dnsOut, "late.ep.test") || !strings.Contains(dnsOut, "brak rekordu") {
-		t.Fatalf("dns check nie wskazał brakującego rekordu:\n%s", dnsOut)
+	if !strings.Contains(dnsOut, "late.ep.test") || !strings.Contains(dnsOut, "no record") {
+		t.Fatalf("dns check did not report the missing record:\n%s", dnsOut)
 	}
 }
 
@@ -119,9 +119,9 @@ func TestTLS_OnDemandRateLimit(t *testing.T) {
 			ok++
 		}
 	}
-	result(t, "12 nowych subdomen wildcardu w ciągu godziny: certyfikaty dla %d (limit 10 na godzinę)", ok)
+	result(t, "12 new wildcard subdomains within an hour: certificates for %d (limit 10 per hour)", ok)
 	if ok != 10 {
-		t.Fatalf("limit nowych subdomen: %d", ok)
+		t.Fatalf("new subdomain limit: %d", ok)
 	}
 }
 
@@ -132,7 +132,7 @@ func waitCert(host string, d time.Duration) error {
 	})
 }
 
-// Odnowienie: krótki profil Pebble (90 s) i częste sprawdzanie odnowień w Caddy.
+// Renewal: a short Pebble profile (90 s) and frequent renewal checks in Caddy.
 func TestTLS_Renewal(t *testing.T) {
 	h.Experiment(t)
 	e := h.New(t)
@@ -143,50 +143,50 @@ func TestTLS_Renewal(t *testing.T) {
 	s1, na1, _ := peerCert("renew.ep.test")
 	var s2 string
 	var na2 time.Time
-	e.Eventually(150*time.Second, 2*time.Second, "odnowienie certyfikatu", func() error {
+	e.Eventually(150*time.Second, 2*time.Second, "certificate renewal", func() error {
 		s, na, err := peerCert("renew.ep.test")
 		if err != nil {
 			return err
 		}
 		if s == s1 {
-			return errors.New("ten sam certyfikat")
+			return errors.New("same certificate")
 		}
 		s2, na2 = s, na
 		return nil
 	})
-	result(t, "certyfikat ważny do %s odnowiony na ważny do %s (inny numer seryjny), bez przerwy w HTTPS", na1.Format(time.TimeOnly), na2.Format(time.TimeOnly))
+	result(t, "certificate valid until %s renewed to valid until %s (different serial number), no HTTPS outage", na1.Format(time.TimeOnly), na2.Format(time.TimeOnly))
 	_ = s2
 	e.WaitHTTPS("https://renew.ep.test/", 200)
 }
 
-// Konektor odrzuca serwer z obcym CA (podmieniony pakiet połączenia).
+// The connector rejects a server with a foreign CA (a swapped connection bundle).
 func TestTLS_ConnectorRejectsForeignCA(t *testing.T) {
 	e := apiSetup(t)
 	_, good := e.Token("api")
 	b, _ := h.DecodeBundle(good)
-	// Pakiet z CA innej bramy: brama musi zostać odrzucona przez klienta.
+	// A bundle with another gateway's CA: the client must reject the gateway.
 	other := e.MustExec(h.Gateway, "cat", "/pebble/pebble.minica.pem")
 	fake := rebundle(t, e, good, other)
 	a := e.StartApp(h.AppOptions{Container: h.ClientA, Connect: fake, Replica: "a"})
 	var logs string
-	e.Eventually(20*time.Second, 300*time.Millisecond, "tls_error w logu konektora", func() error {
+	e.Eventually(20*time.Second, 300*time.Millisecond, "tls_error in the connector log", func() error {
 		logs, _ = e.Sh(h.ClientA, "cat /tmp/app-a.log")
 		if !strings.Contains(logs, "tls_error") {
-			return fmt.Errorf("brak")
+			return fmt.Errorf("missing")
 		}
 		return nil
 	})
 	healthy := strings.Contains(logs, `"ready":true`)
-	tlsErr := strings.Contains(logs, "tls_error") || strings.Contains(logs, "nie jest podpisany")
+	tlsErr := strings.Contains(logs, "tls_error") || strings.Contains(logs, "is not signed")
 	reps := e.ReplicaSuffixes("api")
 	_ = a
-	result(t, "pakiet z obcym CA: połączenie=%v, tls_error=%v, repliki=%v (serwer %s)", healthy, tlsErr, reps, b.Server)
+	result(t, "bundle with a foreign CA: connected=%v, tls_error=%v, replicas=%v (server %s)", healthy, tlsErr, reps, b.Server)
 	if healthy || len(reps) != 0 || !tlsErr {
-		t.Fatal("konektor połączył się z bramą o certyfikacie spoza zaufanych CA")
+		t.Fatal("the connector connected to a gateway with a certificate outside the trusted CAs")
 	}
 }
 
-// rebundle podmienia CA w pakiecie połączenia narzędziem konektora.
+// rebundle swaps the CA in a connection bundle with the connector's tool.
 func rebundle(t *testing.T, e *h.Env, bundle, caPEM string) string {
 	t.Helper()
 	e.WriteFile(h.ClientA, "/run/ep/rebundle.connect", bundle, "600")

@@ -1,6 +1,6 @@
 package tests
 
-// Zestaw e2e 3: routing HTTP.
+// e2e suite 3: HTTP routing.
 
 import (
 	"bufio"
@@ -29,7 +29,7 @@ type echo struct {
 	Headers    map[string][]string `json:"headers"`
 }
 
-// Drugi upstream w sieci prywatnej (ten sam kontener, inny port i nazwa).
+// A second upstream in the private network (same container, different port and name).
 func secondUpstream(e *h.Env) {
 	e.MustSh(h.Upstream, "pgrep -f 'addr :8081' >/dev/null || (nohup testsrv -addr :8081 -name second > /tmp/second.log 2>&1 &)")
 }
@@ -59,7 +59,7 @@ func doEcho(t *testing.T, c *http.Client, req *http.Request) echo {
 	defer resp.Body.Close()
 	var e echo
 	_ = json.NewDecoder(resp.Body).Decode(&e)
-	e.Proto = fmt.Sprintf("%s (klient: %s)", e.Proto, resp.Proto)
+	e.Proto = fmt.Sprintf("%s (client: %s)", e.Proto, resp.Proto)
 	return e
 }
 
@@ -74,13 +74,13 @@ func TestRouting_HostPrefixAndBoundaries(t *testing.T) {
 	cases := []struct{ url, name, path string }{
 		{"https://r.ep.test/x", "vpn-upstream", "/x"},
 		{"https://r.ep.test/api", "second", "/api"},
-		{"https://r.ep.test/api/x", "second", "/api/x"},      // prefiks przekazany bez zmian
-		{"https://r.ep.test/apix", "vpn-upstream", "/apix"},  // granica segmentu
-		{"https://r.ep.test/api/v2/x", "vpn-upstream", "/x"}, // najdłuższy prefiks + stripPrefix
-		{"https://r.ep.test/api/v2", "vpn-upstream", "/"},    // stripPrefix całej ścieżki
-		{"https://r.ep.test/api/v2x", "second", "/api/v2x"},  // granica segmentu dłuższego prefiksu
-		{"https://x.w.ep.test/a", "second", "/a"},            // dokładny host wygrywa z wildcardem
-		{"https://y.w.ep.test/a", "vpn-upstream", "/a"},      // wildcard, certyfikat w locie
+		{"https://r.ep.test/api/x", "second", "/api/x"},      // prefix passed through unchanged
+		{"https://r.ep.test/apix", "vpn-upstream", "/apix"},  // segment boundary
+		{"https://r.ep.test/api/v2/x", "vpn-upstream", "/x"}, // longest prefix + stripPrefix
+		{"https://r.ep.test/api/v2", "vpn-upstream", "/"},    // stripPrefix of the whole path
+		{"https://r.ep.test/api/v2x", "second", "/api/v2x"},  // segment boundary of a longer prefix
+		{"https://x.w.ep.test/a", "second", "/a"},            // an exact host beats a wildcard
+		{"https://y.w.ep.test/a", "vpn-upstream", "/a"},      // wildcard, on-demand certificate
 	}
 	var lines []string
 	for _, tc := range cases {
@@ -96,10 +96,10 @@ func TestRouting_HostPrefixAndBoundaries(t *testing.T) {
 		})
 		lines = append(lines, fmt.Sprintf("%s -> %s %s", strings.TrimPrefix(tc.url, "https://"), got.Name, got.Path))
 		if got.Name != tc.name || got.Path != tc.path {
-			t.Errorf("%s: %s %q, oczekiwano %s %q", tc.url, got.Name, got.Path, tc.name, tc.path)
+			t.Errorf("%s: %s %q, expected %s %q", tc.url, got.Name, got.Path, tc.name, tc.path)
 		}
 		if got.Host != strings.Split(strings.TrimPrefix(tc.url, "https://"), "/")[0] {
-			t.Errorf("%s: Host %q nie został przekazany bez zmian", tc.url, got.Host)
+			t.Errorf("%s: Host %q was not passed through unchanged", tc.url, got.Host)
 		}
 	}
 	result(t, "%s", strings.Join(lines, "; "))
@@ -111,8 +111,8 @@ func TestRouting_Conflicts(t *testing.T) {
 	for _, spec := range [][]string{
 		{"r.ep.test/api", "--to", h.UpstreamVPN},
 		{"R.EP.TEST/api/", "--to", h.UpstreamVPN},
-		{"r.ep.test/api", "--service", "brak"},
-		{"r.ep.test/b", "--to", "nie-ip:80"},
+		{"r.ep.test/api", "--service", "missing"},
+		{"r.ep.test/b", "--to", "not-an-ip:80"},
 		{"r.ep.test/../x", "--to", h.UpstreamVPN},
 		{"*.test", "--to", h.UpstreamVPN},
 		{"*.*.ep.test", "--to", h.UpstreamVPN},
@@ -120,27 +120,27 @@ func TestRouting_Conflicts(t *testing.T) {
 		{"r.ep.test/c", "--to", h.UpstreamVPN, "--acme-staging"},
 	} {
 		out, err := e.EP(append([]string{"route", "add"}, spec...)...)
-		lines = append(lines, fmt.Sprintf("%s: odrzucone=%v", spec[0], err != nil))
+		lines = append(lines, fmt.Sprintf("%s: rejected=%v", spec[0], err != nil))
 		if err == nil {
-			t.Errorf("trasa %v przyjęta: %s", spec, out)
+			t.Errorf("route %v accepted: %s", spec, out)
 		}
 	}
-	// Konflikt baseRev.
+	// baseRev conflict.
 	var res struct{ Revision struct{ Num int64 } }
 	e.EPJSON(&res, "route", "add", "r.ep.test/d", "--to", h.UpstreamVPN)
 	_, err := e.EP("route", "add", "r.ep.test/e", "--to", h.UpstreamVPN, "--base-rev", fmt.Sprint(res.Revision.Num-1))
-	lines = append(lines, fmt.Sprintf("nieaktualne baseRev: odrzucone=%v", err != nil))
-	if err == nil || !strings.Contains(err.Error(), "konflikt rewizji") {
+	lines = append(lines, fmt.Sprintf("stale baseRev: rejected=%v", err != nil))
+	if err == nil || !strings.Contains(err.Error(), "base revision conflict") {
 		t.Errorf("baseRev: %v", err)
 	}
 	_, err = e.EP("route", "add", "r.ep.test/e", "--to", h.UpstreamVPN, "--base-rev", fmt.Sprint(res.Revision.Num))
 	if err != nil {
-		t.Errorf("aktualne baseRev odrzucone: %v", err)
+		t.Errorf("current baseRev rejected: %v", err)
 	}
 	result(t, "%s", strings.Join(lines, "; "))
 }
 
-// Surowe żądanie HTTP/1.1 przez TLS (ścieżki, których klient Go nie wyśle bez zmian).
+// A raw HTTP/1.1 request over TLS (paths the Go client would not send unchanged).
 func rawRequest(t *testing.T, e *h.Env, host, target string, headers ...string) (int, echo) {
 	t.Helper()
 	pool, _ := h.PebbleRoots()
@@ -183,10 +183,10 @@ func TestRouting_PathNormalization(t *testing.T) {
 	for _, tc := range cases {
 		code, ec := rawRequest(t, e, "r.ep.test", tc.target)
 		lines = append(lines, fmt.Sprintf("%s -> %d %s path=%q uri=%q", tc.target, code, ec.Name, ec.Path, ec.RequestURI))
-		// Własność bezpieczeństwa: trasa /api (upstream „second”) dostaje tylko ścieżki,
-		// które po normalizacji leżą pod /api.
+		// Security property: the /api route (upstream "second") only gets paths
+		// that lie under /api after normalization.
 		if ec.Name == "second" && !(strings.HasPrefix(strings.ToLower(ec.Path), "/api/") || strings.ToLower(ec.Path) == "/api") {
-			t.Errorf("%s trafiło do trasy /api ze ścieżką %q", tc.target, ec.Path)
+			t.Errorf("%s reached the /api route with path %q", tc.target, ec.Path)
 		}
 	}
 	result(t, "%s", strings.Join(lines, "; "))
@@ -198,11 +198,11 @@ func TestRouting_ForwardedHeaders(t *testing.T) {
 	xff := strings.Join(ec.Headers["X-Forwarded-For"], ",")
 	xfh := strings.Join(ec.Headers["X-Forwarded-Host"], ",")
 	xfp := strings.Join(ec.Headers["X-Forwarded-Proto"], ",")
-	result(t, "upstream widzi X-Forwarded-For=%q X-Forwarded-Host=%q X-Forwarded-Proto=%q X-Real-IP=%q Forwarded=%q Host=%q",
+	result(t, "upstream sees X-Forwarded-For=%q X-Forwarded-Host=%q X-Forwarded-Proto=%q X-Real-IP=%q Forwarded=%q Host=%q",
 		xff, xfh, xfp, strings.Join(ec.Headers["X-Real-Ip"], ","), strings.Join(ec.Headers["Forwarded"], ","), ec.Host)
 	if xff != h.RunnerIP || xfh != "r.ep.test" || xfp != "https" || ec.Host != "r.ep.test" ||
 		len(ec.Headers["X-Real-Ip"]) > 0 || len(ec.Headers["Forwarded"]) > 0 {
-		t.Fatal("nagłówki X-Forwarded-* od klienta nie zostały zastąpione")
+		t.Fatal("client-supplied X-Forwarded-* headers were not replaced")
 	}
 }
 
@@ -221,7 +221,7 @@ func TestRouting_LimitsAndTimeouts(t *testing.T) {
 	small, big := post(512<<10), post(2<<20)
 	code, _, _ := get(c, "https://lim.ep.test/slow?ms=4000")
 	codeOK, _, _ := get(c, "https://lim.ep.test/slow?ms=500")
-	// Domyślny limit 50 MB na innej trasie.
+	// The default 50 MB limit on another route.
 	r51 := func() int {
 		resp, err := c.Post("https://r.ep.test/upload", "application/octet-stream", bytes.NewReader(make([]byte, 51<<20)))
 		if err != nil {
@@ -230,9 +230,9 @@ func TestRouting_LimitsAndTimeouts(t *testing.T) {
 		resp.Body.Close()
 		return resp.StatusCode
 	}()
-	result(t, "limit 1 MB: 512 KB -> %d, 2 MB -> %d; domyślny 50 MB: 51 MB -> %d; header-timeout 2 s: odpowiedź po 4 s -> %d, po 0,5 s -> %d", small, big, r51, code, codeOK)
+	result(t, "1 MB limit: 512 KB -> %d, 2 MB -> %d; default 50 MB: 51 MB -> %d; header-timeout 2 s: response after 4 s -> %d, after 0.5 s -> %d", small, big, r51, code, codeOK)
 	if small != 200 || big != 413 || r51 != 413 || code != 504 || codeOK != 200 {
-		t.Fatal("limity tras nie działają")
+		t.Fatal("route limits do not work")
 	}
 }
 
@@ -249,7 +249,7 @@ func TestRouting_UpstreamWebSocketSSEAndHTTP2(t *testing.T) {
 	ws.Write(ctx, websocket.MessageText, []byte("ping"))
 	_, m, err := ws.Read(ctx)
 	if err != nil || string(m) != "ping" {
-		t.Fatalf("WebSocket przez upstream IP:port: %q %v", m, err)
+		t.Fatalf("WebSocket through an IP:port upstream: %q %v", m, err)
 	}
 	ws.Close(websocket.StatusNormalClosure, "")
 	lines, done := readSSE(ctx, e, "https://r.ep.test/sse")
@@ -261,13 +261,13 @@ func TestRouting_UpstreamWebSocketSSEAndHTTP2(t *testing.T) {
 		case err := <-done:
 			t.Fatalf("SSE: %v", err)
 		case <-ctx.Done():
-			t.Fatal("SSE: brak zdarzeń")
+			t.Fatal("SSE: no events")
 		}
 	}
-	// Upstream przez tunel: WebSocket także działa (adapter node:http).
-	result(t, "HTTP do klienta: %s; WebSocket echo przez upstream w sieci prywatnej: ok; SSE: %d zdarzeń", ec.Proto, events)
-	if !strings.Contains(ec.Proto, "klient: HTTP/2.0") {
-		t.Fatal("brak HTTP/2 do klienta")
+	// Upstream through a tunnel: WebSocket works too (node:http adapter).
+	result(t, "HTTP to the client: %s; WebSocket echo through an upstream in the private network: ok; SSE: %d events", ec.Proto, events)
+	if !strings.Contains(ec.Proto, "client: HTTP/2.0") {
+		t.Fatal("no HTTP/2 to the client")
 	}
 }
 
@@ -282,6 +282,6 @@ func TestRouting_HTTPRedirect(t *testing.T) {
 	loc := resp.Header.Get("Location")
 	result(t, "HTTP -> %d %s", resp.StatusCode, loc)
 	if resp.StatusCode != 308 || loc != "https://r.ep.test/x" {
-		t.Fatal("brak przekierowania na HTTPS")
+		t.Fatal("no redirect to HTTPS")
 	}
 }

@@ -1,5 +1,5 @@
-// Pakiet authz to plugin autoryzacji frps i endpoint zgody na certyfikaty.
-// Odpowiada wyłącznie ze snapshotu w pamięci, z odjętymi odwołaniami.
+// Package authz is the frps authorization plugin and the certificate consent endpoint.
+// It answers only from the in-memory snapshot, minus revocations.
 package authz
 
 import (
@@ -22,7 +22,7 @@ import (
 	"github.com/k18k/entrypoint/gateway/internal/token"
 )
 
-// Kody odrzuceń przekazywane do frpc. Konektor rozpoznaje je po prefiksie.
+// Rejection codes passed to frpc. The connector recognizes them by prefix.
 const (
 	ReasonUnknown      = "ep:unknown_token"
 	ReasonRevoked      = "ep:revoked"
@@ -39,7 +39,7 @@ type state struct {
 	hosts   map[string]bool
 }
 
-// LoginRecorder zapisuje informacje o logowaniu (bez sekretów).
+// LoginRecorder records login information (without secrets).
 type LoginRecorder func(tokenID, clientIP, hostname, version string, caFps []string)
 
 // Server to plugin frps.
@@ -55,7 +55,7 @@ type Server struct {
 	sessions    *sessionTracker
 	maxSessions int
 	record      LoginRecorder
-	mu          sync.Mutex // serializuje podmiany snapshotu
+	mu          sync.Mutex // serializes snapshot swaps
 }
 
 // New creates the plugin. sessionWindow is how long a session counts as alive after its last
@@ -76,7 +76,7 @@ func New(log *slog.Logger, frps *frpsapi.Client, l config.Limits, sessionWindow 
 	return s
 }
 
-// Swap podmienia snapshot. Odwołane tokeny są zawsze odejmowane.
+// Swap replaces the snapshot. Revoked tokens are always subtracted.
 func (s *Server) Swap(snap render.AuthzSnapshot, revoked map[string]bool, hosts []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -103,7 +103,7 @@ func (s *Server) Swap(snap render.AuthzSnapshot, revoked map[string]bool, hosts 
 	s.st.Store(&state{snap: snap, revoked: rv, hosts: hs})
 }
 
-// Revoke odejmuje token od razu, bez czekania na rewizję.
+// Revoke subtracts a token right away, without waiting for a revision.
 func (s *Server) Revoke(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -123,7 +123,7 @@ func (s *Server) Revoke(id string) {
 	s.st.Store(&state{snap: snap, revoked: rv, hosts: cur.hosts})
 }
 
-// Revision zwraca numer rewizji obowiązującego snapshotu.
+// Revision returns the revision number of the current snapshot.
 func (s *Server) Revision() int64 { return s.st.Load().snap.Revision }
 
 type request struct {
@@ -145,7 +145,7 @@ type userInfo struct {
 	RunID string            `json:"run_id"`
 }
 
-// Handler zwraca obsługę HTTP pluginu i endpointu zgody TLS.
+// Handler returns the HTTP handler of the plugin and the TLS consent endpoint.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /frps/handler", s.handlePlugin)
@@ -164,7 +164,7 @@ func reject(reason string) response { return response{Reject: true, RejectReason
 func (s *Server) handlePlugin(w http.ResponseWriter, r *http.Request) {
 	var req request
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
-		writeJSON(w, reject(ReasonForbidden+" niepoprawne żądanie"))
+		writeJSON(w, reject(ReasonForbidden+" invalid request"))
 		return
 	}
 	var resp response
@@ -176,12 +176,12 @@ func (s *Server) handlePlugin(w http.ResponseWriter, r *http.Request) {
 	case "Ping":
 		resp = s.ping(req.Content)
 	default:
-		resp = reject(ReasonForbidden + " nieobsługiwana operacja")
+		resp = reject(ReasonForbidden + " unsupported operation")
 	}
 	writeJSON(w, resp)
 }
 
-// checkToken sprawdza token z metadanych klienta. Zwraca identyfikator (jawny) i wpis.
+// checkToken checks the token from the client metadata. It returns the (public) ID and the entry.
 func (s *Server) checkToken(st *state, metas map[string]string) (string, render.AuthzToken, string) {
 	full := metas["token"]
 	id, secret, err := token.Parse(full)
@@ -217,12 +217,12 @@ func (s *Server) login(raw json.RawMessage) response {
 		ClientAddress string            `json:"client_address"`
 	}
 	if err := json.Unmarshal(raw, &c); err != nil {
-		return reject(ReasonForbidden + " niepoprawne logowanie")
+		return reject(ReasonForbidden + " invalid login")
 	}
 	ip := clientIP(c.ClientAddress)
 	if s.limiter.blocked(ip) {
-		s.log.Warn("logowanie tunelu odrzucone: limit nieudanych prób", "ip", ip)
-		return reject(ReasonRateLimited + " zbyt wiele nieudanych logowań, spróbuj później")
+		s.log.Warn("tunnel login rejected: failed attempts limit", "ip", ip)
+		return reject(ReasonRateLimited + " too many failed logins, try again later")
 	}
 	st := s.st.Load()
 	id, _, why := s.checkToken(st, c.Metas)
@@ -231,36 +231,36 @@ func (s *Server) login(raw json.RawMessage) response {
 	}
 	if why != "" {
 		s.limiter.fail(ip)
-		s.log.Warn("logowanie tunelu odrzucone", "ip", ip, "token_id", id, "powod", why)
+		s.log.Warn("tunnel login rejected", "ip", ip, "token_id", id, "reason", why)
 		if why == ReasonRevoked {
-			return reject(ReasonRevoked + " token został odwołany")
+			return reject(ReasonRevoked + " the token was revoked")
 		}
 		if why == ReasonForbidden {
-			return reject(ReasonForbidden + " pole user nie jest dozwolone")
+			return reject(ReasonForbidden + " the user field is not allowed")
 		}
-		return reject(ReasonUnknown + " nieznany token")
+		return reject(ReasonUnknown + " unknown token")
 	}
 	if s.loginRate.blocked(id) {
-		s.log.Warn("logowanie tunelu odrzucone: limit logowań tokenu", "ip", ip, "token_id", id)
-		return reject(ReasonRateLimited + " zbyt wiele logowań tego tokenu, spróbuj później")
+		s.log.Warn("tunnel login rejected: token login limit", "ip", ip, "token_id", id)
+		return reject(ReasonRateLimited + " too many logins with this token, try again later")
 	}
 	s.loginRate.fail(id)
 	if s.maxSessions > 0 && s.sessions.count(id) >= s.maxSessions {
-		s.log.Warn("logowanie tunelu odrzucone: limit sesji tokenu", "ip", ip, "token_id", id)
-		return reject(fmt.Sprintf("%s limit %d jednoczesnych sesji tokenu", ReasonSessionLimit, s.maxSessions))
+		s.log.Warn("tunnel login rejected: token session limit", "ip", ip, "token_id", id)
+		return reject(fmt.Sprintf("%s limit of %d concurrent sessions per token", ReasonSessionLimit, s.maxSessions))
 	}
 	var fps []string
 	if v := c.Metas["ca"]; v != "" {
 		fps = strings.Split(v, ",")
 	}
-	s.log.Info("logowanie tunelu", "ip", ip, "token_id", id, "hostname", c.Hostname)
+	s.log.Info("tunnel login", "ip", ip, "token_id", id, "hostname", c.Hostname)
 	if s.record != nil {
 		go s.record(id, ip, printable(c.Hostname), printable(c.Version), fps)
 	}
 	return response{Unchange: true}
 }
 
-// Pola NewProxy dozwolone dla proxy tcp. Wszystko inne z niepustą wartością jest odrzucane.
+// NewProxy fields allowed for tcp proxies. Anything else with a non-empty value is rejected.
 var allowedProxyFields = map[string]bool{
 	"user": true, "proxy_name": true, "proxy_type": true,
 	"use_encryption": true, "use_compression": true,
@@ -292,7 +292,7 @@ func isZero(v any) bool {
 func (s *Server) newProxy(ctx context.Context, raw json.RawMessage) response {
 	var m map[string]any
 	if err := json.Unmarshal(raw, &m); err != nil {
-		return reject(ReasonForbidden + " niepoprawne proxy")
+		return reject(ReasonForbidden + " invalid proxy")
 	}
 	var c struct {
 		User      userInfo `json:"user"`
@@ -303,37 +303,37 @@ func (s *Server) newProxy(ctx context.Context, raw json.RawMessage) response {
 	st := s.st.Load()
 	id, tok, why := s.checkToken(st, c.User.Metas)
 	if why != "" {
-		s.log.Warn("rejestracja proxy odrzucona", "token_id", id, "proxy", c.ProxyName, "powod", why)
+		s.log.Warn("proxy registration rejected", "token_id", id, "proxy", c.ProxyName, "reason", why)
 		return reject(why)
 	}
 	if s.proxyRate.blocked(id) {
-		s.log.Warn("rejestracja proxy odrzucona: limit operacji tokenu", "token_id", id, "proxy", c.ProxyName)
-		return reject(ReasonRateLimited + " zbyt wiele rejestracji proxy tego tokenu")
+		s.log.Warn("proxy registration rejected: token operation limit", "token_id", id, "proxy", c.ProxyName)
+		return reject(ReasonRateLimited + " too many proxy registrations with this token")
 	}
 	s.proxyRate.fail(id)
 	deny := func(msg string) response {
-		s.log.Warn("rejestracja proxy odrzucona", "token_id", id, "proxy", c.ProxyName, "powod", msg)
+		s.log.Warn("proxy registration rejected", "token_id", id, "proxy", c.ProxyName, "reason", msg)
 		return reject(ReasonForbidden + " " + msg)
 	}
 	if c.ProxyType != "tcp" {
-		return deny("dozwolony jest tylko typ tcp")
+		return deny("only the tcp type is allowed")
 	}
 	for k, v := range m {
 		if !allowedProxyFields[k] && !isZero(v) {
-			return deny("niedozwolone pole " + k)
+			return deny("field not allowed: " + k)
 		}
 	}
-	// Nazwa: <serwis>.<id tokenu>.<replika>
+	// Name: <service>.<token ID>.<replica>
 	parts := strings.Split(c.ProxyName, ".")
 	if len(parts) != 3 || parts[0] != tok.Service || parts[1] != id || !replicaNameRe.MatchString(parts[2]) {
-		return deny(fmt.Sprintf("nazwa proxy musi mieć postać %s.%s.<replika>", tok.Service, id))
+		return deny(fmt.Sprintf("the proxy name must look like %s.%s.<replica>", tok.Service, id))
 	}
 	svc := st.snap.Services[tok.Service]
 	if s.frps != nil {
 		online, err := s.frps.Online(ctx)
 		if err != nil {
-			s.log.Error("limit replik: brak stanu frps", "err", err)
-			return reject(ReasonUnavailable + " stan replik niedostępny")
+			s.log.Error("replica limit: no frps state", "err", err)
+			return reject(ReasonUnavailable + " replica state unavailable")
 		}
 		n := 0
 		for _, p := range online {
@@ -342,18 +342,18 @@ func (s *Server) newProxy(ctx context.Context, raw json.RawMessage) response {
 			}
 		}
 		if n >= tok.MaxReplicas {
-			return reject(fmt.Sprintf("%s osiągnięto limit %d replik dla tokenu", ReasonLimit, tok.MaxReplicas))
+			return reject(fmt.Sprintf("%s reached the limit of %d replicas per token", ReasonLimit, tok.MaxReplicas))
 		}
 	}
-	// Grupa, klucz grupy i port zawsze z serwisu tokenu.
+	// The group, group key and port always come from the token's service.
 	m["group"] = svc.Group()
 	m["group_key"] = svc.GroupKey
 	m["remote_port"] = svc.Port
-	s.log.Info("rejestracja repliki", "token_id", id, "proxy", c.ProxyName, "serwis", svc.Name, "port", svc.Port)
+	s.log.Info("replica registered", "token_id", id, "proxy", c.ProxyName, "service", svc.Name, "port", svc.Port)
 	return response{Unchange: false, Content: m}
 }
 
-// ping ponownie sprawdza sesję wobec bieżącego snapshotu: odwołanie, rollback, usunięcie serwisu.
+// ping rechecks the session against the current snapshot: revocation, rollback, removed service.
 func (s *Server) ping(raw json.RawMessage) response {
 	var c struct {
 		User userInfo `json:"user"`
@@ -363,14 +363,14 @@ func (s *Server) ping(raw json.RawMessage) response {
 	}
 	id, _, why := s.checkToken(s.st.Load(), c.User.Metas)
 	if why != "" {
-		s.log.Warn("sesja tunelu odrzucona przy heartbeat", "token_id", id, "powod", why)
-		return reject(why + " sesja nieważna")
+		s.log.Warn("tunnel session rejected at heartbeat", "token_id", id, "reason", why)
+		return reject(why + " session invalid")
 	}
 	s.sessions.touch(id, c.User.RunID)
 	return response{Unchange: true}
 }
 
-// handleAsk zgadza się na certyfikat tylko dla hostów z trasą.
+// handleAsk consents to a certificate only for hosts with a route.
 func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 	d := strings.ToLower(strings.TrimSuffix(r.URL.Query().Get("domain"), "."))
 	st := s.st.Load()
@@ -382,19 +382,19 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if ok && viaWildcard && !s.onDemand.allow(d) {
-		s.log.Warn("zgoda na certyfikat odrzucona: limit nowych subdomen na godzinę", "domain", d)
+		s.log.Warn("certificate consent rejected: new subdomains per hour limit", "domain", d)
 		http.Error(w, "limit", http.StatusTooManyRequests)
 		return
 	}
 	if !ok {
-		s.log.Info("zgoda na certyfikat odrzucona: brak trasy", "domain", d)
-		http.Error(w, "brak trasy", http.StatusForbidden)
+		s.log.Info("certificate consent rejected: no route", "domain", d)
+		http.Error(w, "no route", http.StatusForbidden)
 		return
 	}
 	w.WriteHeader(200)
 }
 
-// failLimiter liczy nieudane logowania per adres IP w oknie czasowym.
+// failLimiter counts failed logins per IP address in a time window.
 type failLimiter struct {
 	mu     sync.Mutex
 	limit  int
@@ -432,12 +432,12 @@ func (l *failLimiter) fail(ip string) {
 	defer l.mu.Unlock()
 	now := time.Now()
 	l.hits[ip] = append(l.prune(ip, now), now)
-	if len(l.hits) > 100000 { // ochrona pamięci
+	if len(l.hits) > 100000 { // memory guard
 		l.hits = map[string][]time.Time{}
 	}
 }
 
-// nameLimiter ogranicza liczbę nowych nazw (subdomen w locie) w oknie czasowym.
+// nameLimiter limits the number of new names (on-demand subdomains) in a time window.
 type nameLimiter struct {
 	mu     sync.Mutex
 	limit  int

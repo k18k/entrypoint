@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Bundle to zdekodowany pakiet połączenia (testy budują z niego konfigurację zmodyfikowanego frpc).
+// Bundle is a decoded connection bundle (tests build a modified frpc's configuration from it).
 type Bundle struct {
 	Server  string   `json:"server"`
 	Port    int      `json:"port"`
@@ -25,7 +25,7 @@ func DecodeBundle(s string) (Bundle, error) {
 	return b, err
 }
 
-// TokenID zwraca identyfikator tokenu z pakietu.
+// TokenID returns the token ID from the bundle.
 func (b Bundle) TokenID() string {
 	parts := strings.Split(b.Token, "_")
 	if len(parts) < 3 {
@@ -34,8 +34,8 @@ func (b Bundle) TokenID() string {
 	return parts[1]
 }
 
-// RawFrpc uruchamia frpc z własną konfiguracją (bez konektora), jak zmodyfikowany klient.
-// proxies to fragment JSON listy proxies; heartbeat < 0 wyłącza heartbeat.
+// RawFrpc runs frpc with its own configuration (no connector), like a modified client.
+// proxies is a JSON fragment of the proxies list; heartbeat < 0 disables heartbeats.
 func (e *Env) RawFrpc(container, name string, b Bundle, proxies string, heartbeat int) {
 	e.T.Helper()
 	ca := strings.Join(b.CAs, "\n")

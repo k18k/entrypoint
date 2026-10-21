@@ -27,7 +27,7 @@ type ctxKey int
 
 const peerKey ctxKey = 1
 
-// peerContext zapamiętuje UID procesu po drugiej stronie socketu (autor rewizji).
+// peerContext remembers the UID of the process on the other end of the socket (the revision author).
 func peerContext(ctx context.Context, c net.Conn) context.Context {
 	uc, ok := c.(*net.UnixConn)
 	if !ok {
@@ -91,7 +91,7 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
-		fail(w, 400, fmt.Errorf("niepoprawne żądanie: %v", err))
+		fail(w, 400, fmt.Errorf("invalid request: %v", err))
 		return false
 	}
 	return true
@@ -101,7 +101,7 @@ type userError struct{ error }
 
 func badRequest(f string, a ...any) error { return userError{fmt.Errorf(f, a...)} }
 
-// replyChange zamienia wynik zmiany na odpowiedź HTTP.
+// replyChange turns a change result into an HTTP response.
 func (d *Daemon) replyChange(w http.ResponseWriter, rev *store.Revision, err error, res *api.ChangeResult) {
 	if res == nil {
 		res = &api.ChangeResult{}
@@ -115,7 +115,7 @@ func (d *Daemon) replyChange(w http.ResponseWriter, rev *store.Revision, err err
 			fail(w, 409, err)
 		case errors.As(err, &ue), errors.As(err, &ve):
 			fail(w, 400, err)
-		case err != nil && strings.HasPrefix(err.Error(), "Caddy odrzucił"):
+		case err != nil && strings.HasPrefix(err.Error(), "Caddy rejected"):
 			fail(w, 400, err)
 		default:
 			fail(w, 500, err)
@@ -126,7 +126,7 @@ func (d *Daemon) replyChange(w http.ResponseWriter, rev *store.Revision, err err
 		res.Applied = false
 		res.Error = err.Error()
 		res.Token = nil
-		reply(w, 500, &api.Error{Message: "rewizja " + strconv.FormatInt(rev.Num, 10) + " nie została zastosowana: " + err.Error(), Result: res})
+		reply(w, 500, &api.Error{Message: "revision " + strconv.FormatInt(rev.Num, 10) + " was not applied: " + err.Error(), Result: res})
 		return
 	}
 	res.Applied = true
@@ -152,7 +152,7 @@ func (d *Daemon) hRevisions(w http.ResponseWriter, r *http.Request) {
 func (d *Daemon) hRevision(w http.ResponseWriter, r *http.Request) {
 	n, err := strconv.ParseInt(r.PathValue("num"), 10, 64)
 	if err != nil {
-		fail(w, 400, errors.New("niepoprawny numer rewizji"))
+		fail(w, 400, errors.New("invalid revision number"))
 		return
 	}
 	rev, err := d.st.Revision(r.Context(), n)
@@ -161,7 +161,7 @@ func (d *Daemon) hRevision(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if rev == nil {
-		fail(w, 404, fmt.Errorf("rewizja %d nie istnieje", n))
+		fail(w, 404, fmt.Errorf("revision %d does not exist", n))
 		return
 	}
 	reply(w, 200, rev)
@@ -178,7 +178,7 @@ func (d *Daemon) headSpec(ctx context.Context) (*store.Revision, error) {
 	return h, nil
 }
 
-// replicas zwraca repliki pogrupowane po serwisie, z frps.
+// replicas returns the replicas grouped by service, from frps.
 func (d *Daemon) replicas(ctx context.Context) (map[string][]api.ReplicaInfo, error) {
 	online, err := d.frps.Online(ctx)
 	if err != nil {
@@ -244,27 +244,27 @@ func (d *Daemon) hStatus(w http.ResponseWriter, r *http.Request) {
 	_, cerr := d.caddy.Config(ctx)
 	st.CaddyOK = cerr == nil
 	if !st.FrpsOK {
-		st.Warnings = append(st.Warnings, "frps nie odpowiada: stan replik nieznany")
+		st.Warnings = append(st.Warnings, "frps not responding: replica state unknown")
 	} else {
 		for _, s := range st.Services {
 			if len(s.Replicas) == 0 {
-				st.Warnings = append(st.Warnings, fmt.Sprintf("serwis %s nie ma żadnej zdrowej repliki", s.Name))
+				st.Warnings = append(st.Warnings, fmt.Sprintf("service %s has no healthy replica", s.Name))
 			}
 		}
 	}
 	if !st.CaddyOK {
-		st.Warnings = append(st.Warnings, "Caddy nie odpowiada na admin API")
+		st.Warnings = append(st.Warnings, "Caddy is not responding on the admin API")
 	}
 	if last != nil && head.Num != last.Num {
-		st.Warnings = append(st.Warnings, fmt.Sprintf("rewizja %d nie jest w pełni zastosowana (status %s)", head.Num, head.Status))
+		st.Warnings = append(st.Warnings, fmt.Sprintf("revision %d is not fully applied (status %s)", head.Num, head.Status))
 	}
 	for _, c := range comps {
 		if last != nil && c.Applied != last.Num {
-			st.Warnings = append(st.Warnings, fmt.Sprintf("komponent %s ma rewizję %d, oczekiwana %d", c.Name, c.Applied, last.Num))
+			st.Warnings = append(st.Warnings, fmt.Sprintf("component %s has revision %d, expected %d", c.Name, c.Applied, last.Num))
 		}
 	}
 	if revs, err := d.st.Revisions(ctx, 1); err == nil && len(revs) == 1 && revs[0].Status == store.StatusFailed {
-		st.Warnings = append(st.Warnings, fmt.Sprintf("ostatnia rewizja %d zakończyła się błędem: %s", revs[0].Num, revs[0].Error))
+		st.Warnings = append(st.Warnings, fmt.Sprintf("the last revision %d failed: %s", revs[0].Num, revs[0].Error))
 	}
 	reply(w, 200, st)
 }
@@ -293,7 +293,7 @@ func (d *Daemon) hServiceAdd(w http.ResponseWriter, r *http.Request) {
 			return "", userError{err}
 		}
 		if s.ServiceByName(req.Name) != nil {
-			return "", badRequest("serwis %q już istnieje", req.Name)
+			return "", badRequest("service %q already exists", req.Name)
 		}
 		id, port, err := tx.ReservePort(req.Name, d.cfg.PortPool.Start, d.cfg.PortPool.End)
 		if err != nil {
@@ -301,7 +301,7 @@ func (d *Daemon) hServiceAdd(w http.ResponseWriter, r *http.Request) {
 		}
 		created = spec.Service{ID: id, Name: req.Name, Port: port, Health: req.Health}
 		s.Services = append(s.Services, created)
-		return fmt.Sprintf("dodanie serwisu %s (port %d)", req.Name, port), nil
+		return fmt.Sprintf("add service %s (port %d)", req.Name, port), nil
 	})
 	d.replyChange(w, rev, err, &api.ChangeResult{Service: &api.ServiceInfo{Name: created.Name, Port: created.Port, Health: created.Health, Replicas: []api.ReplicaInfo{}}})
 }
@@ -313,7 +313,7 @@ func baseRevFromQuery(r *http.Request) (*int64, error) {
 	}
 	n, err := strconv.ParseInt(v, 10, 64)
 	if err != nil {
-		return nil, errors.New("niepoprawne baseRev")
+		return nil, errors.New("invalid baseRev")
 	}
 	return &n, nil
 }
@@ -328,7 +328,7 @@ func (d *Daemon) hServiceRm(w http.ResponseWriter, r *http.Request) {
 	rev, err := d.change(r.Context(), base, author(r), func(tx *store.Tx, s *spec.Spec) (string, error) {
 		svc := s.ServiceByName(name)
 		if svc == nil {
-			return "", badRequest("serwis %q nie istnieje", name)
+			return "", badRequest("service %q does not exist", name)
 		}
 		var used []string
 		for _, rt := range s.Routes {
@@ -337,7 +337,7 @@ func (d *Daemon) hServiceRm(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if len(used) > 0 {
-			return "", badRequest("serwis %q jest używany przez trasy: %s; usuń je najpierw", name, strings.Join(used, ", "))
+			return "", badRequest("service %q is used by routes: %s; remove them first", name, strings.Join(used, ", "))
 		}
 		id := svc.ID
 		var svcs []spec.Service
@@ -347,8 +347,8 @@ func (d *Daemon) hServiceRm(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		s.Services = svcs
-		// Tokeny serwisu znikają razem z nim; są związane z identyfikatorem serwisu,
-		// więc nowy serwis o tej samej nazwie ich nie przejmie.
+		// The service's tokens go away with it; they are bound to the service ID,
+		// so a new service with the same name does not inherit them.
 		var toks []spec.Token
 		for _, t := range s.Tokens {
 			if t.ServiceID != id {
@@ -356,7 +356,7 @@ func (d *Daemon) hServiceRm(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		s.Tokens = toks
-		return fmt.Sprintf("usunięcie serwisu %s (port %d zostaje zarezerwowany)", name, svc.Port), nil
+		return fmt.Sprintf("remove service %s (port %d stays reserved)", name, svc.Port), nil
 	})
 	d.replyChange(w, rev, err, nil)
 }
@@ -407,10 +407,10 @@ func (d *Daemon) hRouteAdd(w http.ResponseWriter, r *http.Request) {
 			return "", userError{err}
 		}
 		if (req.Service == "") == (req.Upstream == "") {
-			return "", badRequest("podaj dokładnie jedno: --service albo --to")
+			return "", badRequest("pass exactly one of --service or --to")
 		}
 		if req.Service != "" && s.ServiceByName(req.Service) == nil {
-			return "", badRequest("serwis %q nie istnieje", req.Service)
+			return "", badRequest("service %q does not exist", req.Service)
 		}
 		if req.Upstream != "" {
 			if err := spec.ValidUpstream(req.Upstream); err != nil {
@@ -419,17 +419,17 @@ func (d *Daemon) hRouteAdd(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, rt := range s.Routes {
 			if rt.Host == host && strings.EqualFold(rt.Prefix, prefix) {
-				return "", badRequest("konflikt tras: %s%s jest już zajęte przez trasę %s", host, prefix, rt.ID)
+				return "", badRequest("route conflict: %s%s is already taken by route %s", host, prefix, rt.ID)
 			}
 			if rt.Host == host && rt.ACME != req.ACME {
-				return "", badRequest("host %s ma już trasy w trybie ACME %q", host, rt.ACME)
+				return "", badRequest("host %s already has routes in ACME mode %q", host, rt.ACME)
 			}
 		}
 		created = spec.Route{ID: newRouteID(s), Host: host, Prefix: prefix, Service: req.Service, Upstream: req.Upstream,
 			StripPrefix: req.StripPrefix, MaxBodyBytes: req.MaxBodyBytes, ResponseHeaderTimeout: req.ResponseHeaderTimeout, ACME: req.ACME,
 			TLSNames: req.TLSNames, TLSOnDemand: req.TLSOnDemand}
 		s.Routes = append(s.Routes, created)
-		return fmt.Sprintf("dodanie trasy %s %s%s -> %s", created.ID, host, prefix, created.Target()), nil
+		return fmt.Sprintf("add route %s %s%s -> %s", created.ID, host, prefix, created.Target()), nil
 	})
 	ri := routeInfo(created)
 	d.replyChange(w, rev, err, &api.ChangeResult{Route: &ri})
@@ -445,9 +445,9 @@ func (d *Daemon) hRouteRm(w http.ResponseWriter, r *http.Request) {
 	rev, err := d.change(r.Context(), base, author(r), func(tx *store.Tx, s *spec.Spec) (string, error) {
 		rt := s.RouteByID(id)
 		if rt == nil {
-			return "", badRequest("trasa %q nie istnieje", id)
+			return "", badRequest("route %q does not exist", id)
 		}
-		desc := fmt.Sprintf("usunięcie trasy %s %s%s", id, rt.Host, rt.Prefix)
+		desc := fmt.Sprintf("remove route %s %s%s", id, rt.Host, rt.Prefix)
 		var out []spec.Route
 		for _, x := range s.Routes {
 			if x.ID != id {
@@ -510,11 +510,11 @@ func (d *Daemon) hTokenCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.MaxReplicas < 0 || req.MaxReplicas > 1000 {
-		fail(w, 400, errors.New("niepoprawny limit replik"))
+		fail(w, 400, errors.New("invalid replica limit"))
 		return
 	}
 	if len(req.Label) > 100 {
-		fail(w, 400, errors.New("etykieta jest za długa"))
+		fail(w, 400, errors.New("label is too long"))
 		return
 	}
 	full, id, hash, err := token.New()
@@ -529,10 +529,10 @@ func (d *Daemon) hTokenCreate(w http.ResponseWriter, r *http.Request) {
 	rev, err := d.change(r.Context(), req.BaseRev, author(r), func(tx *store.Tx, s *spec.Spec) (string, error) {
 		svc := s.ServiceByName(req.Service)
 		if svc == nil {
-			return "", badRequest("serwis %q nie istnieje", req.Service)
+			return "", badRequest("service %q does not exist", req.Service)
 		}
 		s.Tokens = append(s.Tokens, spec.Token{ID: id, ServiceID: svc.ID, Hash: hash, Label: req.Label, CreatedAt: time.Now().UTC(), MaxReplicas: maxRep})
-		return fmt.Sprintf("wydanie tokenu %s dla serwisu %s", id, req.Service), nil
+		return fmt.Sprintf("issue token %s for service %s", id, req.Service), nil
 	})
 	var res *api.ChangeResult
 	if err == nil && rev != nil {
@@ -571,19 +571,19 @@ func (d *Daemon) hTokenRevoke(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !known {
-		fail(w, 404, fmt.Errorf("token %q nie istnieje", id))
+		fail(w, 404, fmt.Errorf("token %q does not exist", id))
 		return
 	}
 	reason := req.Reason
 	if reason == "" {
-		reason = "odwołanie przez " + author(r)
+		reason = "revoked by " + author(r)
 	}
-	// 1. Dziennik odwołań (poza rewizjami). 2. Natychmiastowa podmiana snapshotu w pamięci.
+	// 1. Revocation journal (outside revisions). 2. Immediate in-memory snapshot swap.
 	if err := d.st.Revoke(ctx, id, reason); err != nil {
 		fail(w, 500, err)
 		return
 	}
 	d.authz.Revoke(id)
-	d.log.Warn("token odwołany", "token_id", id)
+	d.log.Warn("token revoked", "token_id", id)
 	reply(w, 200, map[string]any{"revoked": id, "revokedAt": time.Now().UTC()})
 }

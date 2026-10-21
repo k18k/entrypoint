@@ -1,8 +1,8 @@
-// Pakiet token: format tokenów serwisów i pakietu połączenia ENTRYPOINT_CONNECT.
+// Package token: the format of service tokens and of the ENTRYPOINT_CONNECT connection bundle.
 //
-// Token ma postać ept_<id>_<sekret>. Identyfikator (12 znaków hex) jest jawny
-// i służy do wyszukania wpisu; sekret to 256 losowych bitów w base64url.
-// W bazie zapisywany jest wyłącznie SHA-256 sekretu.
+// A token looks like ept_<id>_<secret>. The ID (12 hex characters) is public
+// and used to look up the entry; the secret is 256 random bits in base64url.
+// Only the SHA-256 of the secret is stored in the database.
 package token
 
 import (
@@ -25,10 +25,10 @@ var (
 	secretRe = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
 )
 
-// ErrMalformed oznacza token o niepoprawnej budowie. Komunikat nie zawiera treści tokenu.
-var ErrMalformed = errors.New("niepoprawny format tokenu")
+// ErrMalformed means a malformed token. The message never contains the token.
+var ErrMalformed = errors.New("malformed token")
 
-// New tworzy nowy token. Zwraca pełną wartość (pokazywaną raz), identyfikator i hash sekretu.
+// New creates a token. It returns the full value (shown once), the ID and the secret's hash.
 func New() (full, id, hash string, err error) {
 	idb := make([]byte, 6)
 	sec := make([]byte, 32)
@@ -43,7 +43,7 @@ func New() (full, id, hash string, err error) {
 	return prefix + id + "_" + s, id, Hash(s), nil
 }
 
-// Parse rozdziela token na identyfikator i sekret.
+// Parse splits a token into its ID and secret.
 func Parse(full string) (id, secret string, err error) {
 	if !strings.HasPrefix(full, prefix) {
 		return "", "", ErrMalformed
@@ -60,31 +60,31 @@ func Parse(full string) (id, secret string, err error) {
 	return id, secret, nil
 }
 
-// Hash zwraca hex SHA-256 sekretu. Sekret ma 256 bitów entropii, więc wolny hash nie jest potrzebny.
+// Hash returns the hex SHA-256 of the secret. The secret has 256 bits of entropy, so a slow hash is not needed.
 func Hash(secret string) string {
 	h := sha256.Sum256([]byte(secret))
 	return hex.EncodeToString(h[:])
 }
 
-// Verify porównuje sekret z hashem w stałym czasie.
+// Verify compares the secret with the hash in constant time.
 func Verify(secret, hash string) bool {
 	got := Hash(secret)
 	return subtle.ConstantTimeCompare([]byte(got), []byte(hash)) == 1
 }
 
-// Bundle to zawartość ENTRYPOINT_CONNECT.
+// Bundle is the content of ENTRYPOINT_CONNECT.
 type Bundle struct {
 	V       int      `json:"v"`
-	Server  string   `json:"server"` // nazwa DNS bramy, nigdy adres IP
+	Server  string   `json:"server"` // gateway DNS name, never an IP address
 	Port    int      `json:"port"`
-	CAs     []string `json:"ca"` // zaufane CA w PEM
+	CAs     []string `json:"ca"` // trusted CAs in PEM
 	Service string   `json:"service"`
 	Token   string   `json:"token"`
 }
 
 const bundlePrefix = "epc1."
 
-// Encode koduje pakiet połączenia.
+// Encode encodes the connection bundle.
 func (b Bundle) Encode() (string, error) {
 	if b.V == 0 {
 		b.V = 1
@@ -96,30 +96,30 @@ func (b Bundle) Encode() (string, error) {
 	return bundlePrefix + base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
-// DecodeBundle dekoduje i sprawdza pakiet połączenia. Błędy nie zawierają jego treści.
+// DecodeBundle decodes and checks a connection bundle. Errors never contain its content.
 func DecodeBundle(s string) (Bundle, error) {
 	var b Bundle
 	s = strings.TrimSpace(s)
 	if !strings.HasPrefix(s, bundlePrefix) {
-		return b, errors.New("ENTRYPOINT_CONNECT: nieznany format pakietu połączenia")
+		return b, errors.New("ENTRYPOINT_CONNECT: unknown connection bundle format")
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(s[len(bundlePrefix):])
 	if err != nil {
-		return b, errors.New("ENTRYPOINT_CONNECT: uszkodzone kodowanie pakietu")
+		return b, errors.New("ENTRYPOINT_CONNECT: corrupted bundle encoding")
 	}
 	if err := json.Unmarshal(raw, &b); err != nil {
-		return b, errors.New("ENTRYPOINT_CONNECT: uszkodzona treść pakietu")
+		return b, errors.New("ENTRYPOINT_CONNECT: corrupted bundle content")
 	}
 	switch {
 	case b.V != 1:
-		return b, fmt.Errorf("ENTRYPOINT_CONNECT: nieobsługiwana wersja pakietu %d", b.V)
+		return b, fmt.Errorf("ENTRYPOINT_CONNECT: unsupported bundle version %d", b.V)
 	case b.Server == "" || b.Port <= 0 || b.Port > 65535:
-		return b, errors.New("ENTRYPOINT_CONNECT: brak nazwy lub portu bramy")
+		return b, errors.New("ENTRYPOINT_CONNECT: missing gateway name or port")
 	case len(b.CAs) == 0:
-		return b, errors.New("ENTRYPOINT_CONNECT: brak zaufanego CA")
+		return b, errors.New("ENTRYPOINT_CONNECT: no trusted CA")
 	}
 	if _, _, err := Parse(b.Token); err != nil {
-		return b, errors.New("ENTRYPOINT_CONNECT: niepoprawny token")
+		return b, errors.New("ENTRYPOINT_CONNECT: invalid token")
 	}
 	return b, nil
 }

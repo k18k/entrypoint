@@ -1,4 +1,4 @@
-// entrypoint: CLI administracyjne bramy.
+// entrypoint: the gateway's admin CLI.
 package main
 
 import (
@@ -17,32 +17,32 @@ import (
 	"github.com/k18k/entrypoint/gateway/internal/version"
 )
 
-const usage = `entrypoint — brama publikowania usług (v%s)
+const usage = `entrypoint — service publishing gateway (v%s)
 
-Użycie:
-  entrypoint install --gateway-name <nazwa> --email <e-mail> [opcje]
+Usage:
+  entrypoint install --gateway-name <name> --email <e-mail> [options]
   entrypoint status [--json]
-  entrypoint service add <nazwa> [--health <ścieżka>]
-  entrypoint service rm <nazwa>
+  entrypoint service add <name> [--health <path>]
+  entrypoint service rm <name>
   entrypoint service list [--json]
-  entrypoint route add <host>[/prefiks] (--to <ip:port> | --service <nazwa>) [opcje]
+  entrypoint route add <host>[/prefix] (--to <ip:port> | --service <name>) [options]
   entrypoint route list [--json]
   entrypoint route rm <id>
-  entrypoint token create --service <nazwa> [--label <opis>] [--connect-only]
+  entrypoint token create --service <name> [--label <description>] [--connect-only]
   entrypoint token list [--json]
   entrypoint token revoke <id> [--now]
   entrypoint dns check
   entrypoint ca status | entrypoint ca rotate start|switch|finish
   entrypoint revision list | entrypoint revision show <n>
-  entrypoint backup [-o <plik>]
-  entrypoint restore <plik>
-  entrypoint logs <entrypointd|caddy|frps> [-f] [-n <linie>]
+  entrypoint backup [-o <file>]
+  entrypoint restore <file>
+  entrypoint logs <entrypointd|caddy|frps> [-f] [-n <lines>]
   entrypoint update
   entrypoint uninstall [--purge] [--yes]
   entrypoint version
 
-Polecenia administracyjne wymagają sudo. Każde polecenie zmieniające konfigurację
-tworzy rewizję i wypisuje jej numer oraz wynik stosowania.
+Admin commands need sudo. Every command that changes the configuration
+creates a revision and prints its number and the apply result.
 `
 
 func main() {
@@ -55,11 +55,11 @@ func main() {
 		var ee exitError
 		if errors.As(err, &ee) {
 			if ee.msg != "" {
-				fmt.Fprintln(os.Stderr, "błąd:", redact.String(ee.msg))
+				fmt.Fprintln(os.Stderr, "error:", redact.String(ee.msg))
 			}
 			os.Exit(ee.code)
 		}
-		fmt.Fprintln(os.Stderr, "błąd:", redact.String(err.Error()))
+		fmt.Fprintln(os.Stderr, "error:", redact.String(err.Error()))
 		os.Exit(1)
 	}
 }
@@ -106,7 +106,7 @@ func dispatch(cmd string, args []string) error {
 		fmt.Printf(usage, version.Version)
 		return nil
 	}
-	return exitError{2, fmt.Sprintf("nieznane polecenie %q; zobacz: entrypoint help", cmd)}
+	return exitError{2, fmt.Sprintf("unknown command %q; see: entrypoint help", cmd)}
 }
 
 func sub(args []string, cmds map[string]func([]string) error) error {
@@ -115,16 +115,16 @@ func sub(args []string, cmds map[string]func([]string) error) error {
 		for k := range cmds {
 			names = append(names, k)
 		}
-		return exitError{2, "brak podpolecenia; dostępne: " + strings.Join(names, ", ")}
+		return exitError{2, "missing subcommand; available: " + strings.Join(names, ", ")}
 	}
 	f, ok := cmds[args[0]]
 	if !ok {
-		return exitError{2, fmt.Sprintf("nieznane podpolecenie %q", args[0])}
+		return exitError{2, fmt.Sprintf("unknown subcommand %q", args[0])}
 	}
 	return f(args[1:])
 }
 
-// parse obsługuje flagi przemieszane z argumentami pozycyjnymi.
+// parse handles flags mixed with positional arguments.
 func parse(fs *flag.FlagSet, args []string) ([]string, error) {
 	fs.SetOutput(os.Stderr)
 	var pos []string
@@ -151,7 +151,7 @@ func loadConfig() (config.Config, error) {
 	c, err := config.Load(configPath())
 	if err != nil {
 		if os.IsNotExist(err) {
-			return c, errors.New("brama nie jest zainstalowana (brak " + configPath() + "); uruchom: sudo entrypoint install")
+			return c, errors.New("the gateway is not installed (missing " + configPath() + "); run: sudo entrypoint install")
 		}
 		return c, err
 	}
@@ -176,7 +176,7 @@ func printJSON(v any) error {
 	return enc.Encode(v)
 }
 
-// printChange wypisuje wynik polecenia zmieniającego konfigurację.
+// printChange prints the result of a command that changes the configuration.
 func printChange(res *api.ChangeResult, err error, asJSON bool) error {
 	var ae *api.Error
 	if errors.As(err, &ae) && ae.Result != nil {
@@ -190,9 +190,9 @@ func printChange(res *api.ChangeResult, err error, asJSON bool) error {
 		}
 	} else if res.Revision != nil {
 		if res.Applied {
-			fmt.Printf("Rewizja %d: zastosowana (%s).\n", res.Revision.Num, res.Revision.Summary)
+			fmt.Printf("Revision %d: applied (%s).\n", res.Revision.Num, res.Revision.Summary)
 		} else {
-			fmt.Printf("Rewizja %d: NIE zastosowana, status %s.\n", res.Revision.Num, res.Revision.Status)
+			fmt.Printf("Revision %d: NOT applied, status %s.\n", res.Revision.Num, res.Revision.Status)
 		}
 		for _, d := range res.Revision.Diff {
 			fmt.Println("  " + d)
@@ -205,7 +205,7 @@ func printChange(res *api.ChangeResult, err error, asJSON bool) error {
 }
 
 func baseRevFlag(fs *flag.FlagSet) *int64 {
-	return fs.Int64("base-rev", -1, "rewizja bazowa (odrzuć zmianę, jeśli powstała nowsza)")
+	return fs.Int64("base-rev", -1, "base revision (reject the change if a newer one exists)")
 }
 
 func baseRev(v *int64) *int64 {
@@ -216,9 +216,9 @@ func baseRev(v *int64) *int64 {
 }
 
 func confirm(prompt string) bool {
-	fmt.Fprint(os.Stderr, prompt+" [t/N] ")
+	fmt.Fprint(os.Stderr, prompt+" [y/N] ")
 	var s string
 	fmt.Scanln(&s)
 	s = strings.ToLower(strings.TrimSpace(s))
-	return s == "t" || s == "tak" || s == "y" || s == "yes"
+	return s == "y" || s == "yes"
 }

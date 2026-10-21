@@ -1,5 +1,5 @@
-// Pakiet config opisuje konfigurację startową bramy (/etc/entrypoint/entrypoint.json)
-// i układ katalogów instalacji.
+// Package config describes the gateway's startup configuration (/etc/entrypoint/entrypoint.json)
+// and the installation's directory layout.
 package config
 
 import (
@@ -23,7 +23,7 @@ const (
 	LetsEncryptStaging = "https://acme-staging-v02.api.letsencrypt.org/directory"
 )
 
-// Użytkownicy systemowi poszczególnych procesów.
+// System users of the individual processes.
 const (
 	UserDaemon = "entrypoint"
 	UserCaddy  = "entrypoint-caddy"
@@ -50,7 +50,7 @@ type ACME struct {
 	Email        string   `json:"email"`
 	CA           string   `json:"ca"`
 	StagingCA    string   `json:"stagingCA"`
-	TrustedRoots []string `json:"trustedRoots,omitempty"` // dodatkowe zaufane CA katalogu ACME (testy)
+	TrustedRoots []string `json:"trustedRoots,omitempty"` // extra trusted roots for the ACME directory (tests)
 }
 
 type Limits struct {
@@ -68,11 +68,11 @@ type PortPool struct {
 	End   int `json:"end"`
 }
 
-// Testing zawiera przełączniki używane wyłącznie przez testy e2e.
+// Testing holds switches used only by the e2e tests.
 type Testing struct {
-	ApplyDelay    Duration `json:"applyDelay,omitempty"`    // pauza po zapisie snapshotu, przed Caddy
-	ACMEProfile   string   `json:"acmeProfile,omitempty"`   // profil ACME (krótkie certyfikaty w testach odnowień)
-	RenewInterval Duration `json:"renewInterval,omitempty"` // jak często Caddy sprawdza odnowienia
+	ApplyDelay    Duration `json:"applyDelay,omitempty"`    // pause after writing the snapshot, before Caddy
+	ACMEProfile   string   `json:"acmeProfile,omitempty"`   // ACME profile (short-lived certificates in renewal tests)
+	RenewInterval Duration `json:"renewInterval,omitempty"` // how often Caddy checks for renewals
 }
 
 type Config struct {
@@ -88,12 +88,12 @@ type Config struct {
 	PortPool         PortPool `json:"portPool"`
 	ACME             ACME     `json:"acme"`
 	Limits           Limits   `json:"limits"`
-	HeartbeatTimeout int      `json:"heartbeatTimeout"` // sekundy, frps
+	HeartbeatTimeout int      `json:"heartbeatTimeout"` // seconds, frps
 	DriftInterval    Duration `json:"driftInterval"`
 	Testing          Testing  `json:"testing,omitempty"`
 }
 
-// Default zwraca konfigurację z wartościami domyślnymi.
+// Default returns the configuration with default values.
 func Default() Config {
 	return Config{
 		TunnelPort:       55555,
@@ -112,7 +112,7 @@ func Default() Config {
 	}
 }
 
-// Load wczytuje konfigurację i uzupełnia brakujące pola wartościami domyślnymi.
+// Load reads the configuration and fills missing fields with defaults.
 func Load(path string) (Config, error) {
 	c := Default()
 	b, err := os.ReadFile(path)
@@ -128,11 +128,11 @@ func Load(path string) (Config, error) {
 func (c Config) Check() error {
 	switch {
 	case c.GatewayName == "":
-		return errors.New("brak gatewayName")
+		return errors.New("missing gatewayName")
 	case c.TunnelPort <= 0:
-		return errors.New("niepoprawny tunnelPort")
+		return errors.New("invalid tunnelPort")
 	case c.PortPool.Start <= 1024 || c.PortPool.End > 65535 || c.PortPool.Start > c.PortPool.End:
-		return errors.New("niepoprawna pula portów")
+		return errors.New("invalid port pool")
 	}
 	// These values end up in root-owned systemd units or are executed, so they must be
 	// plain addresses and absolute paths (no unit-file syntax, e.g. from a restored backup).
@@ -158,7 +158,7 @@ func (c Config) Save(path string) error {
 	return os.WriteFile(path, append(b, '\n'), 0o644)
 }
 
-// Ścieżki w katalogu danych.
+// Paths in the data directory.
 func (c Config) DBPath() string              { return filepath.Join(c.DataDir, "db", "entrypoint.db") }
 func (c Config) CACert() string              { return filepath.Join(c.DataDir, "ca", "ca.crt") }
 func (c Config) CAKey() string               { return filepath.Join(c.DataDir, "ca", "ca.key") }

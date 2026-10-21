@@ -15,11 +15,11 @@ func TestTokenRoundTrip(t *testing.T) {
 		t.Fatalf("parse/verify: %v", err)
 	}
 	if Verify(sec+"x", hash) {
-		t.Fatal("zły sekret przechodzi")
+		t.Fatal("wrong secret passes")
 	}
 	for _, bad := range []string{"", "ept_", "ept_123_abc", "xpt_" + full[4:], full + "!"} {
 		if _, _, err := Parse(bad); err == nil {
-			t.Errorf("przyjęto %q", bad)
+			t.Errorf("accepted %q", bad)
 		}
 	}
 }
@@ -35,21 +35,21 @@ func TestBundle(t *testing.T) {
 	if err != nil || got.Token != full || got.Server != b.Server {
 		t.Fatalf("decode: %v", err)
 	}
-	// Błędy nie zawierają treści pakietu ani tokenu.
+	// Errors contain neither the bundle nor the token.
 	for _, bad := range []string{"epc1.@@", enc[:len(enc)-5], "xyz"} {
 		_, err := DecodeBundle(bad)
 		if err == nil {
-			t.Errorf("przyjęto %q", bad)
+			t.Errorf("accepted %q", bad)
 			continue
 		}
 		if strings.Contains(err.Error(), full) || strings.Contains(err.Error(), "epc1.") && len(err.Error()) > 80 {
-			t.Errorf("błąd ujawnia treść: %v", err)
+			t.Errorf("error leaks content: %v", err)
 		}
 	}
 	noCA := b
 	noCA.CAs = nil
 	e2, _ := noCA.Encode()
 	if _, err := DecodeBundle(e2); err == nil {
-		t.Error("pakiet bez CA przyjęty")
+		t.Error("bundle without a CA accepted")
 	}
 }

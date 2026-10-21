@@ -8,6 +8,6 @@ export default defineConfig({
   outDir: "lib",
   dts: true,
   clean: true,
-  // Ścieżki eksportów w package.json używają .js i .d.ts.
+  // Export paths in package.json use .js and .d.ts.
   fixedExtension: false,
 });

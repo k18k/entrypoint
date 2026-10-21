@@ -1,4 +1,4 @@
-# Kontekst: katalog główny repozytorium.
+# Context: the repository root.
 ARG NODE_IMAGE=node:24-trixie-slim
 FROM ${NODE_IMAGE}
 ARG VERSION

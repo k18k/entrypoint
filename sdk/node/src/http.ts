@@ -1,29 +1,29 @@
-// Adapter node:http: uruchamia serwer na 127.0.0.1:0 i tunel. Przy drainie przestaje
-// przyjmować połączenia, odpowiada z Connection: close, zamyka strumienie SSE i
-// WebSockety kodem 1001, a koniec połączeń zgłasza konektorowi.
-// Działa z każdym handlerem (req, res), także z aplikacją Express czy Koa (app.callback()).
+// node:http adapter: starts a server on 127.0.0.1:0 and a tunnel. On drain it stops
+// accepting connections, responds with Connection: close, closes SSE streams and
+// WebSockets with code 1001, and reports the end of connections to the connector.
+// Works with any (req, res) handler, including an Express or Koa app (app.callback()).
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo, Socket } from "node:net";
 import { tunnel, type Tunnel, type TunnelOptions } from "./index.js";
 
 export type RequestHandler = (req: IncomingMessage, res: ServerResponse) => void;
 
-/** Minimalny interfejs serwera WebSocket (zgodny z biblioteką ws). */
+/** Minimal WebSocket server interface (compatible with the ws library). */
 export interface WebSocketServerLike {
   clients: Set<{ close(code?: number, reason?: string): void }>;
 }
 
 export interface ExposeOptions extends Omit<TunnelOptions, "upstream"> {
-  /** Serwery WebSocket podpięte pod server (np. new WebSocketServer({ server })). */
+  /** WebSocket servers attached to the server (e.g. new WebSocketServer({ server })). */
   websockets?: WebSocketServerLike[];
-  /** Obsługa SIGTERM/SIGINT: drain i zakończenie procesu (domyślnie true). */
+  /** SIGTERM/SIGINT handling: drain and exit the process (default true). */
   handleSignals?: boolean;
 }
 
 export interface Connection {
   server: Server;
   tunnel: Tunnel;
-  /** Drain: wycofanie z grupy, wygaszanie połączeń, zakończenie tunelu. */
+  /** Drain: withdraw from the group, wind down connections, end the tunnel. */
   drain(opts?: { timeoutMs?: number }): Promise<void>;
   close(): Promise<void>;
 }
@@ -33,14 +33,14 @@ const isEventStream = (v: unknown): boolean =>
     .toLowerCase()
     .startsWith("text/event-stream");
 
-// Nagłówki z res.writeHead(status, { ... }) nie są widoczne w res.getHeader(),
-// więc odpowiedzi SSE rozpoznajemy także po argumentach writeHead.
+// Headers from res.writeHead(status, { ... }) are not visible in res.getHeader(),
+// so we also recognize SSE responses by the writeHead arguments.
 function trackEventStream(res: ServerResponse, set: Set<ServerResponse>): void {
   const writeHead = res.writeHead.bind(res) as (...args: unknown[]) => ServerResponse;
   res.writeHead = ((...args: unknown[]): ServerResponse => {
     for (const a of args) {
       if (Array.isArray(a)) {
-        // [k, v, k, v] albo [[k, v], ...]
+        // [k, v, k, v] or [[k, v], ...]
         const flat = a.flat() as unknown[];
         for (let i = 0; i + 1 < flat.length; i += 2) {
           if (String(flat[i]).toLowerCase() === "content-type" && isEventStream(flat[i + 1]))
@@ -56,12 +56,12 @@ function trackEventStream(res: ServerResponse, set: Set<ServerResponse>): void {
   }) as ServerResponse["writeHead"];
 }
 
-// Ramka zamknięcia WebSocket z kodem 1001 (Going Away), bez maski (serwer -> klient).
+// WebSocket close frame with code 1001 (Going Away), unmasked (server -> client).
 const WS_CLOSE_1001 = Buffer.from([0x88, 0x02, 0x03, 0xe9]);
 
 /**
- * Wystawia handler HTTP przez bramę Entrypoint: uruchamia serwer na 127.0.0.1 (losowy port,
- * niedostępny z sieci) i tunel do niego. Pakiet połączenia: opts.connect albo ENTRYPOINT_CONNECT.
+ * Exposes an HTTP handler through the Entrypoint gateway: starts a server on 127.0.0.1 (random port,
+ * not reachable from the network) and a tunnel to it. Connection bundle: opts.connect or ENTRYPOINT_CONNECT.
  */
 export async function expose(handler: RequestHandler, opts: ExposeOptions): Promise<Connection> {
   let draining = false;
@@ -124,9 +124,9 @@ export async function expose(handler: RequestHandler, opts: ExposeOptions): Prom
   const drain = (o: { timeoutMs?: number } = {}): Promise<void> => {
     drainPromise ??= (async () => {
       const exited = t.drain({ timeoutMs: o.timeoutMs ?? opts.drainTimeoutMs });
-      // Krok 1: konektor wycofuje replikę z grupy.
+      // Step 1: the connector withdraws the replica from the group.
       await t.withdrawn();
-      // Krok 2: wygaszanie połączeń.
+      // Step 2: wind down connections.
       draining = true;
       server.close();
       server.closeIdleConnections();
@@ -136,7 +136,7 @@ export async function expose(handler: RequestHandler, opts: ExposeOptions): Prom
         checkDone();
       });
       await Promise.race([allClosed.then(() => t.notifyDrained()), exited]);
-      // Krok 3: konektor kończy frpc; pozostałe połączenia są zrywane.
+      // Step 3: the connector stops frpc; remaining connections are dropped.
       await exited;
       server.closeAllConnections();
     })();
@@ -160,7 +160,7 @@ export async function expose(handler: RequestHandler, opts: ExposeOptions): Prom
     process.once("SIGINT", onSignal);
   }
 
-  // Tunel zakończony z innego powodu (np. odwołanie tokenu): zamykamy serwer.
+  // Tunnel ended for another reason (e.g. token revocation): close the server.
   void t.exited.then(() => {
     if (!draining) server.close();
   });
@@ -168,8 +168,8 @@ export async function expose(handler: RequestHandler, opts: ExposeOptions): Prom
   return { server, tunnel: t, drain, close };
 }
 
-/** @deprecated Od 0.1.1: użyj ExposeOptions. */
+/** @deprecated Since 0.1.1: use ExposeOptions. */
 export type ConnectOptions = ExposeOptions;
 
-/** @deprecated Od 0.1.1: użyj expose(). */
+/** @deprecated Since 0.1.1: use expose(). */
 export const connectTo: typeof expose = expose;

@@ -1,14 +1,14 @@
-# Entrypoint — budowanie, paczki wydania i testy e2e.
+# Entrypoint: build, release packages and e2e tests.
 #
-#   make dist            paczka wydania bramy (dist/release/) i konektor
-#   make sdk             paczki npm SDK (dist/npm/)
-#   make release         pliki wydania GitHub (dist/release-assets/)
-#   make test            testy jednostkowe
-#   make e2e             testy e2e naszego kodu w Dockerze (SHARDS=4 równoległe kopie)
-#   make e2e-experiments eksperymenty: zachowanie Caddy i frp (po zmianie versions.json)
-#   make e2e SUITE=Routing   jeden zestaw (nazwy: Smoke Install TLS Routing Tunnels
+#   make dist            gateway release tarball (dist/release/) and connector
+#   make sdk             npm SDK packages (dist/npm/)
+#   make release         GitHub release files (dist/release-assets/)
+#   make test            unit tests
+#   make e2e             e2e tests of our code in Docker (SHARDS=4 parallel shards)
+#   make e2e-experiments experiments: Caddy and frp behavior (after changing versions.json)
+#   make e2e SUITE=Routing   one suite (names: Smoke Install TLS Routing Tunnels
 #                        Replicas State Revoke Ops SDK Resilience Secrets)
-#   make e2e-up / e2e-down   środowisko bez uruchamiania testów
+#   make e2e-up / e2e-down   environment without running tests
 
 SHELL := /bin/bash
 REPO := $(abspath .)
@@ -54,7 +54,7 @@ dist: deps build
 	done
 	cp scripts/install.sh dist/release/install.sh
 
-# Pakiety npm: SDK i pakiety platform z konektorem i frpc.
+# npm packages: the SDK and the per-platform packages with the connector and frpc.
 sdk: dist
 	cd sdk/node && npm pkg set version=$(VERSION)
 	python3 scripts/release-assets.py manifest
@@ -65,18 +65,18 @@ sdk: dist
 	  np=$$(case $$p in linux_amd64) echo linux-x64;; linux_arm64) echo linux-arm64;; darwin_amd64) echo darwin-x64;; darwin_arm64) echo darwin-arm64;; windows_amd64) echo win32-x64;; esac); \
 	  os=$${np%-*}; cpu=$${np#*-}; d=dist/npm-src/$$np; rm -rf $$d; mkdir -p $$d/bin; \
 	  cp dist/connector/$$p/* $$d/bin/; \
-	  printf '{\n  "name": "@k18k/entrypoint-%s",\n  "version": "%s",\n  "description": "Konektor Entrypoint i frpc dla %s",\n  "license": "Apache-2.0",\n  "os": ["%s"],\n  "cpu": ["%s"],\n  "files": ["bin"]\n}\n' $$np $(VERSION) $$np $$os $$cpu > $$d/package.json; \
+	  printf '{\n  "name": "@k18k/entrypoint-%s",\n  "version": "%s",\n  "description": "Entrypoint connector and frpc for %s",\n  "license": "Apache-2.0",\n  "os": ["%s"],\n  "cpu": ["%s"],\n  "files": ["bin"]\n}\n' $$np $(VERSION) $$np $$os $$cpu > $$d/package.json; \
 	  (cd $$d && npm pack --pack-destination ../../npm >/dev/null); \
 	done
 	@ls dist/npm
 
-# Wszystkie pliki wydania (brama linux_amd64, konektor i frpc dla wszystkich platform, SDK).
+# All release files (linux_amd64 gateway, connector and frpc for all platforms, SDK).
 RELEASE_PLATFORMS := linux_amd64 linux_arm64 darwin_amd64 darwin_arm64 windows_amd64
 release:
 	$(MAKE) dist sdk PLATFORMS="$(RELEASE_PLATFORMS)"
 	python3 scripts/release-assets.py assets
 
-# Obraz konektora dla aplikacji w Dockerze.
+# Connector image for applications running in Docker.
 connector-image: dist
 	docker build -t entrypoint-connector:$(VERSION) -f docker/connector/Dockerfile dist/connector
 
@@ -98,12 +98,12 @@ e2e-build: dist sdk e2e/.run
 	docker build -q -t ep-e2e-connector -f docker/connector/Dockerfile dist/connector >/dev/null
 	docker build -q -t ep-e2e-runner e2e/images/runner >/dev/null
 
-# Testy naszego kodu (przed commitem), w SHARDS równoległych kopiach środowiska.
+# Tests of our code (before a commit), in SHARDS parallel environment copies.
 e2e: e2e-build
 	e2e/run.sh e2e $(SHARDS) '$(if $(RUN),$(RUN),^Test$(SUITE))' $(KEEP)
 
-# Eksperymenty: zachowanie Caddy i frp, na którym opiera się specyfikacja
-# (uruchamiać po zmianie wersji w versions.json).
+# Experiments: Caddy and frp behavior the specification relies on
+# (run after changing versions in versions.json).
 e2e-experiments: e2e-build
 	e2e/run.sh experiments $(SHARDS) '$(if $(RUN),$(RUN),^Test$(SUITE))' $(KEEP)
 

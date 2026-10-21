@@ -1,6 +1,6 @@
-// Pobieranie konektora i frpc dla bieżącej platformy z wydania Entrypoint na GitHubie.
-// Sumy SHA256 są zapisane w connector.json w paczce SDK, więc pobrany plik jest
-// odrzucany, jeśli nie zgadza się z tym, co wydano razem z tą wersją SDK.
+// Downloads the connector and frpc for the current platform from the Entrypoint GitHub release.
+// The SHA256 sums are stored in connector.json in the SDK package, so a downloaded file is
+// rejected if it does not match what was released together with this SDK version.
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { chmod, mkdir, rename, writeFile } from "node:fs/promises";
@@ -36,7 +36,7 @@ function frpcExe(): string {
   return process.platform === "win32" ? "frpc.exe" : "frpc";
 }
 
-/** Klucz platformy w wydaniu, np. linux_amd64. */
+/** Platform key in the release, e.g. linux_amd64. */
 export function platformKey(): string | undefined {
   return PLATFORMS[`${process.platform}-${process.arch}`];
 }
@@ -47,7 +47,7 @@ function readManifest(): Manifest | undefined {
   return JSON.parse(readFileSync(p, "utf8")) as Manifest;
 }
 
-/** Katalogi, w których szukamy (i do których pobieramy) konektora tej wersji SDK. */
+/** Directories where we look for (and download to) the connector of this SDK version. */
 export function connectorDirs(): string[] {
   const version = readManifest()?.version ?? "dev";
   const cache = process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache");
@@ -59,13 +59,13 @@ const ALLOWED_PREFIX = "https://github.com/";
 
 async function download(asset: Asset, dest: string): Promise<void> {
   if (!asset.url.startsWith(ALLOWED_PREFIX))
-    throw new Error(`niedozwolony adres pobierania: ${asset.url}`);
+    throw new Error(`disallowed download URL: ${asset.url}`);
   const res = await fetch(asset.url, { redirect: "follow" });
-  if (!res.ok) throw new Error(`pobieranie ${asset.url}: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`download ${asset.url}: HTTP ${res.status}`);
   const buf = Buffer.from(await res.arrayBuffer());
   const got = createHash("sha256").update(buf).digest("hex");
   if (got !== asset.sha256) {
-    throw new Error(`błędna suma SHA256 pliku ${asset.url} (${got}, oczekiwano ${asset.sha256})`);
+    throw new Error(`bad SHA256 sum for ${asset.url} (${got}, expected ${asset.sha256})`);
   }
   const tmp = `${dest}.tmp-${process.pid}`;
   await writeFile(tmp, buf, { mode: 0o755 });
@@ -74,8 +74,8 @@ async function download(asset: Asset, dest: string): Promise<void> {
 }
 
 /**
- * Zapewnia konektor i frpc dla bieżącej platformy: zwraca ścieżkę konektora,
- * pobierając pliki z wydania, jeśli ich jeszcze nie ma. frpc trafia obok konektora.
+ * Ensures the connector and frpc for the current platform: returns the connector path,
+ * downloading the files from the release if they are not there yet. frpc goes next to the connector.
  */
 export async function ensureConnector(): Promise<string> {
   for (const dir of connectorDirs()) {
@@ -86,7 +86,7 @@ export async function ensureConnector(): Promise<string> {
   const key = platformKey();
   const assets = key ? manifest?.platforms[key] : undefined;
   if (!manifest || !key || !assets) {
-    throw new Error(`brak konektora dla platformy ${process.platform}-${process.arch}`);
+    throw new Error(`no connector for platform ${process.platform}-${process.arch}`);
   }
   let lastErr: unknown;
   for (const dir of connectorDirs()) {
@@ -96,7 +96,7 @@ export async function ensureConnector(): Promise<string> {
       await download(assets.connector, join(dir, connectorExe()));
       return join(dir, connectorExe());
     } catch (err) {
-      lastErr = err; // np. katalog paczki tylko do odczytu: próbujemy pamięci podręcznej
+      lastErr = err; // e.g. a read-only package directory: try the cache
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));

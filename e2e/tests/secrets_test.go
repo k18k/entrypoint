@@ -1,6 +1,6 @@
 package tests
 
-// Zestaw e2e 12: ochrona sekretów.
+// e2e suite 12: secret protection.
 
 import (
 	"os"
@@ -12,27 +12,27 @@ import (
 	h "github.com/k18k/entrypoint/e2e/harness"
 )
 
-// Pełny cykl z błędami i odwołaniem, potem przeszukanie wszystkich logów pod kątem sekretów.
+// A full cycle with errors and a revocation, then a search of all logs for secrets.
 func TestSecrets_NoSecretsInLogs(t *testing.T) {
 	e := apiSetup(t)
 	id, ca := e.Token("api")
 	_, cb := e.Token("api")
 	e.StartApp(h.AppOptions{Container: h.ClientA, Connect: ca, Replica: "a", Wait: true})
 	e.WaitHTTPS("https://api.ep.test/whoami", 200)
-	// Błędy: zniekształcony pakiet, token w złym formacie, zły serwis, odwołany token.
+	// Errors: a mangled bundle, a malformed token, the wrong service, a revoked token.
 	broken := strings.Replace(cb, "epc1.", "epc1.X", 1)
 	e.WriteFile(h.ClientB, "/run/ep/broken", broken, "600")
 	out1, _ := e.Sh(h.ClientB, `ENTRYPOINT_CONNECT="$(cat /run/ep/broken)" /app/node_modules/@k18k/entrypoint-linux-x64/bin/entrypoint-connector tunnel --upstream http://127.0.0.1:1 2>&1`)
 	e.WriteFile(h.ClientB, "/run/ep/b", cb, "600")
-	out2, _ := e.Sh(h.ClientB, `ENTRYPOINT_CONNECT="$(cat /run/ep/b)" timeout 5 /app/node_modules/@k18k/entrypoint-linux-x64/bin/entrypoint-connector tunnel --service inny --upstream http://127.0.0.1:1 2>&1`)
+	out2, _ := e.Sh(h.ClientB, `ENTRYPOINT_CONNECT="$(cat /run/ep/b)" timeout 5 /app/node_modules/@k18k/entrypoint-linux-x64/bin/entrypoint-connector tunnel --service other --upstream http://127.0.0.1:1 2>&1`)
 	tokB := h.TokenFromBundle(cb)
 	e.WriteFile(h.ClientB, "/run/ep/badtok", strings.Replace(tokB, "_", "-", 1), "600")
 	out3, _ := e.Sh(h.ClientB, `ENTRYPOINT_CONNECT="$(cat /run/ep/badtok)" /app/node_modules/@k18k/entrypoint-linux-x64/bin/entrypoint-connector tunnel --upstream http://127.0.0.1:1 2>&1`)
 	e.MustEP("token", "revoke", id)
 	time.Sleep(15 * time.Second)
-	// Procesy klienta: token nie występuje w argumentach.
+	// Client processes: the token never appears in arguments.
 	ps := e.MustSh(h.ClientA, "ps -eo args")
-	// Zbierz wszystkie logi: CLI, konektor, frpc, journald bramy, docker logs.
+	// Collect all logs: CLI, connector, frpc, gateway journald, docker logs.
 	cliOut := out1 + out2 + out3
 	var all strings.Builder
 	all.WriteString(cliOut + ps)
@@ -61,18 +61,18 @@ func TestSecrets_NoSecretsInLogs(t *testing.T) {
 		if s == "" {
 			continue
 		}
-		// Sam sekret tokenu (bez jawnego identyfikatora) też nie może wystąpić.
+		// The token secret alone (without the public ID) must not appear either.
 		if strings.HasPrefix(s, "ept_") {
 			parts := strings.SplitN(s, "_", 3)
 			s = parts[2]
 		}
 		if strings.Contains(text, s) {
 			found++
-			t.Errorf("sekret znaleziony w logach (długość %d)", len(s))
+			t.Errorf("secret found in logs (length %d)", len(s))
 		}
 	}
 	_ = os.WriteFile(filepath.Join(h.Repo(), "e2e", "artifacts", "secrets-scan.txt"), []byte(text), 0o600)
-	result(t, "przeszukano %d KB logów (CLI, konektor, frpc, journald, docker); znalezione sekrety: %d; komunikaty błędów: %q | %q | %q",
+	result(t, "searched %d KB of logs (CLI, connector, frpc, journald, docker); secrets found: %d; error messages: %q | %q | %q",
 		len(text)/1024, found, firstLine(out1), firstLine(out2), firstLine(out3))
 }
 
@@ -108,20 +108,20 @@ func TestSecrets_FilePermissions(t *testing.T) {
 	}
 	for p, w := range want {
 		if got[p] != w {
-			t.Errorf("%s: %s, oczekiwano %s", p, got[p], w)
+			t.Errorf("%s: %s, expected %s", p, got[p], w)
 		}
 	}
-	// Konfiguracja startowa nie zawiera sekretów.
+	// The startup configuration contains no secrets.
 	cfg := e.MustExec(h.Gateway, "cat", "/etc/entrypoint/entrypoint.json")
 	if strings.Contains(cfg, "password") || strings.Contains(cfg, "ept_") {
-		t.Error("sekret w /etc/entrypoint/entrypoint.json")
+		t.Error("secret in /etc/entrypoint/entrypoint.json")
 	}
-	// Procesy działają jako osobni użytkownicy.
+	// The processes run as separate users.
 	users := e.MustSh(h.Gateway, "ps -eo user:20,comm | grep -E 'entrypointd|caddy|frps' | sort -u | tr '\\n' ';'")
-	result(t, "prawa plików: %s; procesy: %s", strings.ReplaceAll(strings.TrimSpace(out), "\n", "; "), users)
+	result(t, "file permissions: %s; processes: %s", strings.ReplaceAll(strings.TrimSpace(out), "\n", "; "), users)
 	for _, u := range []string{"entrypoint ", "entrypoint-caddy", "entrypoint-frps"} {
 		if !strings.Contains(users, u) {
-			t.Errorf("brak procesu użytkownika %q", u)
+			t.Errorf("no process of user %q", u)
 		}
 	}
 }

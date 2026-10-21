@@ -12,7 +12,7 @@
     "keyAlgorithm": "ecdsa",
     "profiles": {
       "default": { "description": "e2e", "validityPeriod": 7776000 },
-      "short": { "description": "e2e: test odnowień", "validityPeriod": 90 }
+      "short": { "description": "e2e: renewal test", "validityPeriod": 90 }
     }
   }
 }

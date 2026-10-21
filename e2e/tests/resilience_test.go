@@ -1,6 +1,6 @@
 package tests
 
-// Zestaw e2e 11 (część v0.1): odporność na awarie sieci klientów i restart Caddy.
+// e2e suite 11 (v0.1 part): resilience to client network failures and Caddy restarts.
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 	h "github.com/k18k/entrypoint/e2e/harness"
 )
 
-// chaos uruchamia polecenie sieciowe w przestrzeni sieci kontenera klienta.
+// chaos runs a network command in the client container's network namespace.
 func chaos(e *h.Env, container, cmd string) {
 	e.T.Helper()
 	if _, err := h.Run(nil, "docker", "run", "--rm", "--network", "container:"+container, "--cap-add", "NET_ADMIN", "ep-e2e-chaos", cmd); err != nil {
@@ -38,13 +38,13 @@ func testCut(t *testing.T, d time.Duration) {
 	t0 := time.Now()
 	cutNetwork(e, h.ClientA, d)
 	t1 := time.Now()
-	e.Eventually(90*time.Second, 200*time.Millisecond, "ruch po przywróceniu sieci", func() error {
+	e.Eventually(90*time.Second, 200*time.Millisecond, "traffic after the network is back", func() error {
 		for _, s := range h.Window(load.Snapshot(), t1, time.Now()) {
 			if s.Status == 200 && s.At.After(t1.Add(500*time.Millisecond)) {
 				return nil
 			}
 		}
-		return errors.New("brak udanych odpowiedzi")
+		return errors.New("no successful responses")
 	})
 	recovered := time.Now()
 	time.Sleep(3 * time.Second)
@@ -59,14 +59,14 @@ func testCut(t *testing.T, d time.Duration) {
 	after := h.Window(ss, recovered.Add(time.Second), time.Now())
 	bad := h.Count(after, func(s h.Sample) bool { return s.Status != 200 })
 	st := a.MustStats()
-	result(t, "odcięcie sieci klienta na %s: pierwsza udana odpowiedź %s po przywróceniu; sesja zerwana: %v; błędy po powrocie: %d z %d",
+	result(t, "client network cut for %s: first successful response %s after it came back; session dropped: %v; errors after return: %d of %d",
 		d, ms(firstOK), st.HasEvent("disconnected"), bad, len(after))
 	_ = t0
 	if bad > 0 {
-		t.Fatal("błędy po powrocie sieci")
+		t.Fatal("errors after the network came back")
 	}
 	if firstOK > 30*time.Second {
-		t.Fatalf("tunel wrócił dopiero po %s", firstOK)
+		t.Fatalf("the tunnel came back only after %s", firstOK)
 	}
 }
 
@@ -91,13 +91,13 @@ func TestResilience_PacketLoss(t *testing.T) {
 	time.Sleep(30 * time.Second)
 	ss := load.Stop()
 	bad := h.Count(ss, func(s h.Sample) bool { return s.Status != 200 })
-	result(t, "10%% strat i 50±20 ms opóźnienia na łączu klienta: błędy %d z %d", bad, len(ss))
+	result(t, "10%% loss and 50±20 ms delay on the client link: errors %d of %d", bad, len(ss))
 	if float64(bad) > 0.01*float64(len(ss)) {
-		t.Fatalf("za dużo błędów: %d z %d", bad, len(ss))
+		t.Fatalf("too many errors: %d of %d", bad, len(ss))
 	}
 }
 
-// Restart Caddy zrywa połączenia; HTTP wraca, a klient WebSocket musi połączyć się ponownie.
+// A Caddy restart drops connections; HTTP comes back and the WebSocket client must reconnect.
 func TestResilience_CaddyRestart(t *testing.T) {
 	h.Experiment(t)
 	e := apiSetup(t)
@@ -117,7 +117,7 @@ func TestResilience_CaddyRestart(t *testing.T) {
 	_, _, wsErr := ws.Read(ctx)
 	wsDrop := time.Since(t0)
 	var reconnect time.Duration
-	e.Eventually(30*time.Second, 200*time.Millisecond, "ponowne połączenie WebSocket", func() error {
+	e.Eventually(30*time.Second, 200*time.Millisecond, "WebSocket reconnect", func() error {
 		c, _, err := websocket.Dial(ctx, "wss://api.ep.test/ws", &websocket.DialOptions{HTTPClient: e.HTTPClient()})
 		if err != nil {
 			return err
@@ -134,9 +134,9 @@ func TestResilience_CaddyRestart(t *testing.T) {
 			lastBad = s.At.Sub(t0)
 		}
 	}
-	result(t, "restart Caddy: WebSocket zerwany po %s (%v), ponowne połączenie możliwe po %s; ostatni błąd HTTP po %s", ms(wsDrop), wsErr != nil, ms(reconnect), ms(lastBad))
+	result(t, "Caddy restart: WebSocket dropped after %s (%v), reconnect possible after %s; last HTTP error after %s", ms(wsDrop), wsErr != nil, ms(reconnect), ms(lastBad))
 	if wsErr == nil || reconnect > 15*time.Second || lastBad > 15*time.Second {
-		t.Fatal("restart Caddy: zbyt długa przerwa")
+		t.Fatal("Caddy restart: outage too long")
 	}
 	_ = fmt.Sprint
 }

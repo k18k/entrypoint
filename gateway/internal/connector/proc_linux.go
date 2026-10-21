@@ -9,7 +9,7 @@ import (
 
 const isWindows = false
 
-// setParentDeath: jądro zabija frpc, gdy konektor zginie (także przez kill -9).
+// setParentDeath: the kernel kills frpc when the connector dies (including kill -9).
 func setParentDeath(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL, Setpgid: true}
 }

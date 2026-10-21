@@ -11,10 +11,10 @@ import (
 	"github.com/k18k/entrypoint/gateway/internal/config"
 )
 
-// Uninstall usuwa usługi i programy. Dane zostają, chyba że purge.
+// Uninstall removes the services and programs. Data stays unless purge is set.
 func Uninstall(cfg config.Config, purge bool, out io.Writer) error {
 	if os.Geteuid() != 0 {
-		return errors.New("odinstalowanie wymaga uprawnień root (sudo)")
+		return errors.New("uninstall requires root (sudo)")
 	}
 	_ = exec.Command("systemctl", append([]string{"disable", "--now"}, UnitNames...)...).Run()
 	for _, u := range UnitNames {
@@ -25,9 +25,9 @@ func Uninstall(cfg config.Config, purge bool, out io.Writer) error {
 	if err := os.RemoveAll(config.OptDir); err != nil {
 		return err
 	}
-	fmt.Fprintln(out, "Usunięto usługi i programy.")
+	fmt.Fprintln(out, "Removed services and programs.")
 	if !purge {
-		fmt.Fprintf(out, "Dane zostają w %s i %s.\n", cfg.DataDir, config.EtcDir)
+		fmt.Fprintf(out, "Data kept in %s and %s.\n", cfg.DataDir, config.EtcDir)
 		return nil
 	}
 	if err := os.RemoveAll(cfg.DataDir); err != nil {
@@ -40,6 +40,6 @@ func Uninstall(cfg config.Config, purge bool, out io.Writer) error {
 		_ = exec.Command("userdel", u).Run()
 		_ = exec.Command("groupdel", u).Run()
 	}
-	fmt.Fprintln(out, "Usunięto dane, konfigurację i użytkowników systemowych.")
+	fmt.Fprintln(out, "Removed data, configuration and system users.")
 	return nil
 }

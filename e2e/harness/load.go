@@ -10,16 +10,16 @@ import (
 	"time"
 )
 
-// Sample to wynik jednego żądania generatora ruchu.
+// Sample is the result of one load generator request.
 type Sample struct {
 	At      time.Time
-	Status  int // 0 = błąd transportu
+	Status  int // 0 = transport error
 	Replica string
 	Err     string
 	Dur     time.Duration
 }
 
-// Load wysyła ciągły ruch GET do url z kilku gorutyn (każda z własnym keep-alive).
+// Load sends continuous GET traffic to url from several goroutines (each with its own keep-alive).
 type Load struct {
 	mu      sync.Mutex
 	Samples []Sample
@@ -78,7 +78,7 @@ func (l *Load) Snapshot() []Sample {
 	return append([]Sample(nil), l.Samples...)
 }
 
-// Window zwraca próbki z przedziału [from, to).
+// Window returns the samples in [from, to).
 func Window(ss []Sample, from, to time.Time) []Sample {
 	var out []Sample
 	for _, s := range ss {
@@ -89,7 +89,7 @@ func Window(ss []Sample, from, to time.Time) []Sample {
 	return out
 }
 
-// Count liczy próbki spełniające warunek.
+// Count counts the samples matching a condition.
 func Count(ss []Sample, f func(Sample) bool) int {
 	n := 0
 	for _, s := range ss {

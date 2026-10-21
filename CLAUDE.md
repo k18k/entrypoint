@@ -1,7 +1,7 @@
 # entrypoint
 
 Self-hosted gateway for publishing services.
-Source of truth: docs/specyfikacja.md. Experiment results: docs/wyniki.md.
+Source of truth: docs/specification.md. Experiment results: docs/results.md.
 
 ## Rules
 - Language: English for everything new (code comments, messages, docs, commits, issues).

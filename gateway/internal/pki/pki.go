@@ -1,4 +1,4 @@
-// Pakiet pki obsługuje prywatne CA bramy i certyfikat portu tunelu.
+// Package pki handles the gateway's private CA and the tunnel port certificate.
 package pki
 
 import (
@@ -23,7 +23,7 @@ const (
 	RenewBefore    = 30 * 24 * time.Hour
 )
 
-// CA to certyfikat i klucz urzędu.
+// CA is the authority's certificate and key.
 type CA struct {
 	Cert    *x509.Certificate
 	CertPEM []byte
@@ -34,7 +34,7 @@ func serial() (*big.Int, error) {
 	return rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 127))
 }
 
-// NewCA tworzy nowe CA.
+// NewCA creates a new CA.
 func NewCA(name string) (*CA, []byte, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -67,7 +67,7 @@ func NewCA(name string) (*CA, []byte, error) {
 	return &CA{Cert: cert, CertPEM: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), Key: key}, keyPEM, nil
 }
 
-// IssueServer wystawia certyfikat serwera dla nazwy DNS bramy.
+// IssueServer issues a server certificate for the gateway's DNS name.
 func (ca *CA) IssueServer(dnsName string) (certPEM, keyPEM []byte, err error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -110,7 +110,7 @@ func encodeKey(k *ecdsa.PrivateKey) ([]byte, error) {
 	return pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der}), nil
 }
 
-// LoadCA wczytuje CA z plików.
+// LoadCA loads a CA from files.
 func LoadCA(certFile, keyFile string) (*CA, error) {
 	certPEM, err := os.ReadFile(certFile)
 	if err != nil {
@@ -126,31 +126,31 @@ func LoadCA(certFile, keyFile string) (*CA, error) {
 	}
 	b, _ := pem.Decode(keyPEM)
 	if b == nil {
-		return nil, errors.New("niepoprawny plik klucza CA")
+		return nil, errors.New("invalid CA key file")
 	}
 	key, err := x509.ParseECPrivateKey(b.Bytes)
 	if err != nil {
-		return nil, errors.New("niepoprawny klucz CA")
+		return nil, errors.New("invalid CA key")
 	}
 	return &CA{Cert: cert, CertPEM: certPEM, Key: key}, nil
 }
 
-// ParseCert parsuje pierwszy certyfikat PEM.
+// ParseCert parses the first PEM certificate.
 func ParseCert(p []byte) (*x509.Certificate, error) {
 	b, _ := pem.Decode(p)
 	if b == nil || b.Type != "CERTIFICATE" {
-		return nil, errors.New("brak certyfikatu PEM")
+		return nil, errors.New("no PEM certificate")
 	}
 	return x509.ParseCertificate(b.Bytes)
 }
 
-// Fingerprint zwraca skrócony odcisk SHA-256 certyfikatu (16 znaków hex).
+// Fingerprint returns a shortened SHA-256 fingerprint of the certificate (16 hex characters).
 func Fingerprint(c *x509.Certificate) string {
 	h := sha256.Sum256(c.Raw)
 	return hex.EncodeToString(h[:8])
 }
 
-// FingerprintPEM liczy odcisk certyfikatu w PEM.
+// FingerprintPEM computes the fingerprint of a PEM certificate.
 func FingerprintPEM(p []byte) (string, error) {
 	c, err := ParseCert(p)
 	if err != nil {
@@ -159,7 +159,7 @@ func FingerprintPEM(p []byte) (string, error) {
 	return Fingerprint(c), nil
 }
 
-// NeedsRenewal mówi, czy certyfikat serwera trzeba odnowić.
+// NeedsRenewal reports whether the server certificate needs renewing.
 func NeedsRenewal(certPEM []byte, now time.Time) (bool, error) {
 	c, err := ParseCert(certPEM)
 	if err != nil {
@@ -168,7 +168,7 @@ func NeedsRenewal(certPEM []byte, now time.Time) (bool, error) {
 	return now.Add(RenewBefore).After(c.NotAfter), nil
 }
 
-// IssuedBy sprawdza, czy certyfikat został wystawiony przez dane CA.
+// IssuedBy reports whether the certificate was issued by the given CA.
 func IssuedBy(certPEM []byte, ca *x509.Certificate) bool {
 	c, err := ParseCert(certPEM)
 	if err != nil {
@@ -177,7 +177,7 @@ func IssuedBy(certPEM []byte, ca *x509.Certificate) bool {
 	return c.CheckSignatureFrom(ca) == nil
 }
 
-// WriteFileAtomic zapisuje plik przez plik tymczasowy, fsync i atomową zmianę nazwy.
+// WriteFileAtomic writes a file via a temporary file, fsync and an atomic rename.
 func WriteFileAtomic(path string, data []byte, mode os.FileMode) error {
 	tmp := fmt.Sprintf("%s.tmp-%d", path, os.Getpid())
 	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)

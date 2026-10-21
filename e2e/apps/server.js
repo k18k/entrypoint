@@ -1,7 +1,7 @@
-// Aplikacja testowa e2e na natywnym node:http, wystawiona przez Entrypoint.
-// MODE=adapter — adapter expose(handler) z @k18k/entrypoint-ts/http
-// MODE=base    — kontrakt bazowy: server.listen + tunnel()
-// Panel sterowania testów słucha na 0.0.0.0:CTL_PORT (poza tunelem).
+// e2e test app on native node:http, exposed through Entrypoint.
+// MODE=adapter — expose(handler) adapter from @k18k/entrypoint-ts/http
+// MODE=base    — base contract: server.listen + tunnel()
+// The test control panel listens on 0.0.0.0:CTL_PORT (outside the tunnel).
 import crypto from "node:crypto";
 import http from "node:http";
 import { WebSocketServer } from "ws";
@@ -32,13 +32,13 @@ function handler(req, res) {
   if (url.pathname === HEALTH) {
     if (healthy) return res.end("ok");
     res.statusCode = 500;
-    return res.end("chory");
+    return res.end("sick");
   }
   stats.requests++;
   stats.lastRequestAt = Date.now();
   if (drainingFlag) stats.requestsAfterDrain++;
-  // Chora replika zwraca błędy dla wszystkich żądań (test 1.5).
-  if (!healthy) return json(res, 500, { replica: REPLICA, error: "chora" });
+  // A sick replica returns errors for all requests (test 1.5).
+  if (!healthy) return json(res, 500, { replica: REPLICA, error: "sick" });
   switch (url.pathname) {
     case "/whoami":
       return json(res, 200, { replica: REPLICA, pid: process.pid, headers: req.headers });
@@ -82,7 +82,7 @@ let appServer;
 async function start() {
   if (MODE === "adapter") {
     let wss;
-    // CONNECT_TO=1: przestarzały alias connectTo (zgodność z 0.1.0).
+    // CONNECT_TO=1: deprecated connectTo alias (compatibility with 0.1.0).
     conn = await (process.env.CONNECT_TO === "1" ? connectTo : expose)(handler, {
       service: SERVICE, healthCheck: HEALTH, replica: REPLICA, drainTimeoutMs: DRAIN_MS,
       healthIntervalSec: 1, healthMaxFailed: 2,
@@ -113,7 +113,7 @@ async function start() {
   console.log(JSON.stringify({ ready: true, mode: MODE, replica: tun.replica }));
 }
 
-// Panel sterowania testów.
+// Test control panel.
 function readBody(req) {
   return new Promise((resolve) => {
     let b = "";
@@ -141,10 +141,10 @@ http.createServer(async (req, res) => {
     json(res, 200, { exiting: true });
     return setTimeout(() => process.exit(0), 50);
   }
-  json(res, 404, { error: "brak" });
+  json(res, 404, { error: "not found" });
 }).listen(Number(process.env.CTL_PORT ?? 9000), "0.0.0.0");
 
 start().catch((e) => {
-  console.error("start nie powiódł się:", e.message);
+  console.error("start failed:", e.message);
   process.exit(1);
 });

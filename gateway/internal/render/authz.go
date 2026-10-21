@@ -6,11 +6,11 @@ import (
 	"github.com/k18k/entrypoint/gateway/internal/spec"
 )
 
-// AuthzSnapshot to dane, z których plugin frps odpowiada bez udziału bazy.
+// AuthzSnapshot is the data the frps plugin answers from, without touching the database.
 type AuthzSnapshot struct {
 	Revision int64                   `json:"revision"`
-	Services map[string]AuthzService `json:"services"` // klucz: nazwa serwisu
-	Tokens   map[string]AuthzToken   `json:"tokens"`   // klucz: identyfikator tokenu
+	Services map[string]AuthzService `json:"services"` // key: service name
+	Tokens   map[string]AuthzToken   `json:"tokens"`   // key: token ID
 }
 
 type AuthzService struct {
@@ -27,10 +27,10 @@ type AuthzToken struct {
 	MaxReplicas int    `json:"maxReplicas"`
 }
 
-// Group zwraca nazwę grupy frp serwisu.
+// Group returns the service's frp group name.
 func (s AuthzService) Group() string { return "svc-" + s.Name }
 
-// Authz renderuje snapshot autoryzacji z konfiguracji.
+// Authz renders the authorization snapshot from the configuration.
 func Authz(rev int64, s *spec.Spec) AuthzSnapshot {
 	snap := AuthzSnapshot{Revision: rev, Services: map[string]AuthzService{}, Tokens: map[string]AuthzToken{}}
 	for _, svc := range s.Services {
@@ -46,7 +46,7 @@ func Authz(rev int64, s *spec.Spec) AuthzSnapshot {
 	return snap
 }
 
-// Klucz grupy jest zawsze nadpisywany przez plugin, więc klient go nie zna ani nie potrzebuje.
+// The group key is always overridden by the plugin, so clients neither know nor need it.
 func groupKey(s spec.Service) string {
 	b, _ := json.Marshal([]any{s.ID, s.Name, s.Port})
 	return "k" + shortHash(b)

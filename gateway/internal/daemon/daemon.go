@@ -1,4 +1,4 @@
-// Pakiet daemon to entrypointd: stan, stosowanie rewizji, plugin frps, API dla CLI.
+// Package daemon is entrypointd: state, applying revisions, the frps plugin, the API for the CLI.
 package daemon
 
 import (
@@ -35,7 +35,7 @@ type Daemon struct {
 	frps  *frpsapi.Client
 	opts  render.CaddyOptions
 
-	mu sync.Mutex // jedna zmiana lub stosowanie naraz
+	mu sync.Mutex // one change or apply at a time
 }
 
 func New(cfg config.Config, log *slog.Logger) (*Daemon, error) {
@@ -51,7 +51,7 @@ func New(cfg config.Config, log *slog.Logger) (*Daemon, error) {
 		frps:  frpsapi.New(cfg.FrpsAPI, cfg.FrpsAPIPasswordFile()),
 		opts:  render.OptionsFrom(cfg),
 	}
-	d.authz = authz.New(log.With("komponent", "plugin"), d.frps, cfg.Limits, time.Duration(cfg.HeartbeatTimeout+5)*time.Second, d.recordLogin)
+	d.authz = authz.New(log.With("component", "plugin"), d.frps, cfg.Limits, time.Duration(cfg.HeartbeatTimeout+5)*time.Second, d.recordLogin)
 	return d, nil
 }
 
@@ -61,13 +61,13 @@ func (d *Daemon) recordLogin(tokenID, ip, host, version string, fps []string) {
 	_ = d.st.RecordLogin(ctx, store.Login{TokenID: tokenID, LastLogin: time.Now(), ClientIP: ip, Hostname: host, Version: version, CAFps: fps})
 }
 
-// Run uruchamia demona do czasu anulowania kontekstu.
+// Run runs the daemon until the context is cancelled.
 func (d *Daemon) Run(ctx context.Context) error {
 	defer d.st.Close()
 
-	// 1. Plugin od razu odpowiada z ostatniego snapshotu na dysku, z odjętymi odwołaniami.
+	// 1. The plugin answers right away from the last snapshot on disk, minus revocations.
 	if err := d.loadSnapshotFromDisk(ctx); err != nil {
-		d.log.Warn("brak snapshotu autoryzacji na dysku", "err", err)
+		d.log.Warn("no authorization snapshot on disk", "err", err)
 	}
 	pluginLn, err := pluginListener(d.cfg.PluginListen)
 	if err != nil {
@@ -77,7 +77,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	go pluginSrv.Serve(pluginLn)
 	defer pluginSrv.Close()
 
-	// 2. API dla CLI na sockecie unixowym.
+	// 2. The CLI API on a unix socket.
 	_ = os.Remove(d.cfg.APISocket)
 	apiLn, err := net.Listen("unix", d.cfg.APISocket)
 	if err != nil {
@@ -88,7 +88,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	go apiSrv.Serve(apiLn)
 	defer apiSrv.Close()
 
-	// 3. Rewizja początkowa i odtworzenie po awarii.
+	// 3. Initial revision and crash recovery.
 	if err := d.bootstrap(ctx); err != nil {
 		return err
 	}
@@ -96,14 +96,14 @@ func (d *Daemon) Run(ctx context.Context) error {
 	go d.driftLoop(ctx)
 	go d.renewLoop(ctx)
 
-	d.log.Info("entrypointd działa", "plugin", d.cfg.PluginListen, "api", d.cfg.APISocket)
+	d.log.Info("entrypointd running", "plugin", d.cfg.PluginListen, "api", d.cfg.APISocket)
 	<-ctx.Done()
 	return nil
 }
 
-// pluginListener bierze gniazdo od systemd (entrypointd.socket), jeśli zostało przekazane.
-// systemd trzyma je także wtedy, gdy demon nie działa: zapytania frps czekają w kolejce
-// zamiast kończyć się błędem, więc restart demona nie zrywa sesji tuneli.
+// pluginListener takes the socket from systemd (entrypointd.socket) when one is passed.
+// systemd holds it even while the daemon is down: frps requests queue up
+// instead of failing, so a daemon restart does not drop tunnel sessions.
 func pluginListener(addr string) (net.Listener, error) {
 	if os.Getenv("LISTEN_PID") == strconv.Itoa(os.Getpid()) && os.Getenv("LISTEN_FDS") != "" {
 		n, _ := strconv.Atoi(os.Getenv("LISTEN_FDS"))
@@ -134,7 +134,7 @@ func (d *Daemon) loadSnapshotFromDisk(ctx context.Context) error {
 	}
 	hosts := d.hostsForRevision(ctx, snap.Revision)
 	d.authz.Swap(snap, revoked, hosts)
-	d.log.Info("snapshot autoryzacji wczytany z dysku", "rewizja", snap.Revision)
+	d.log.Info("authorization snapshot loaded from disk", "revision", snap.Revision)
 	return nil
 }
 
@@ -157,12 +157,12 @@ func (d *Daemon) bootstrap(ctx context.Context) error {
 		return nil
 	}
 	_, err = d.st.Create(ctx, -1, "system", func(_ *store.Tx, _ *spec.Spec) (string, error) {
-		return "konfiguracja początkowa", nil
+		return "initial configuration", nil
 	}, nil)
 	return err
 }
 
-// recover dokańcza przerwaną rewizję i ponownie stosuje ostatnią zastosowaną (idempotentnie).
+// recover finishes an interrupted revision and reapplies the last applied one (idempotently).
 func (d *Daemon) recover(ctx context.Context) {
 	backoff := time.Second
 	for {
@@ -170,7 +170,7 @@ func (d *Daemon) recover(ctx context.Context) {
 		if err == nil {
 			return
 		}
-		d.log.Warn("odtwarzanie stanu po starcie nie powiodło się, ponawiam", "err", err, "za", backoff)
+		d.log.Warn("restoring state after start failed, retrying", "err", err, "za", backoff)
 		select {
 		case <-ctx.Done():
 			return
@@ -185,10 +185,10 @@ func (d *Daemon) recover(ctx context.Context) {
 func (d *Daemon) recoverOnce(ctx context.Context) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	// Caddy może startować wolniej niż demon. Bez działającego admin API każda próba
-	// stosowania zakończyłaby się wycofaniem, więc czekamy (pętla recover ponawia).
+	// Caddy may start slower than the daemon. Without a working admin API every apply
+	// would end in a rollback, so wait (the recover loop retries).
 	if _, err := d.caddy.Config(ctx); err != nil {
-		return fmt.Errorf("Caddy jeszcze niedostępny: %w", err)
+		return fmt.Errorf("Caddy not available yet: %w", err)
 	}
 	revs, err := d.st.Revisions(ctx, 1)
 	if err != nil {
@@ -199,12 +199,12 @@ func (d *Daemon) recoverOnce(ctx context.Context) error {
 		switch latest.Status {
 		case store.StatusApplying:
 			if latest.Attempts >= 2 {
-				d.log.Warn("rewizja przerwana po ponowieniu; wycofuję", "rewizja", latest.Num)
-				return d.rollback(ctx, latest, errors.New("przerwana dwukrotnie w trakcie stosowania"))
+				d.log.Warn("revision interrupted again after a retry; rolling back", "revision", latest.Num)
+				return d.rollback(ctx, latest, errors.New("interrupted twice while applying"))
 			}
-			d.log.Info("ponawiam rewizję przerwaną w trakcie stosowania", "rewizja", latest.Num)
+			d.log.Info("retrying a revision interrupted while applying", "revision", latest.Num)
 			if err := d.apply(ctx, latest); err != nil {
-				return nil // apply sam wycofał i oznaczył failed
+				return nil // apply rolled back and marked it failed itself
 			}
 			return nil
 		case store.StatusPending:
@@ -219,10 +219,10 @@ func (d *Daemon) recoverOnce(ctx context.Context) error {
 		return err
 	}
 	if last == nil {
-		// Żadna rewizja nie została zastosowana (np. pierwszy start przerwany błędem):
-		// nowa rewizja z bieżącą konfiguracją.
+		// No revision was ever applied (e.g. the first start failed):
+		// make a new revision from the current configuration.
 		rev, err := d.st.Create(ctx, -1, "system", func(_ *store.Tx, _ *spec.Spec) (string, error) {
-			return "ponowne zastosowanie konfiguracji po nieudanym starcie", nil
+			return "reapplying the configuration after a failed start", nil
 		}, nil)
 		if err != nil {
 			return err
@@ -232,7 +232,7 @@ func (d *Daemon) recoverOnce(ctx context.Context) error {
 	return d.applyComponents(ctx, last)
 }
 
-// applyComponents stosuje rewizję do wszystkich komponentów bez zmiany jej statusu.
+// applyComponents applies a revision to all components without changing its status.
 func (d *Daemon) applyComponents(ctx context.Context, rev *store.Revision) error {
 	caddyJSON, err := render.Caddy(rev.Spec, d.opts)
 	if err != nil {
@@ -264,7 +264,7 @@ func (d *Daemon) writeSnapshot(ctx context.Context, snap render.AuthzSnapshot, s
 		return err
 	}
 	if err := pki.WriteFileAtomic(d.cfg.AuthSnapshot(), b, 0o600); err != nil {
-		return fmt.Errorf("zapis snapshotu autoryzacji: %w", err)
+		return fmt.Errorf("writing the authorization snapshot: %w", err)
 	}
 	revoked, err := d.st.RevokedSet(ctx)
 	if err != nil {
@@ -278,14 +278,14 @@ func (d *Daemon) applyCaddy(ctx context.Context, caddyJSON []byte) error {
 	if err := d.caddy.Load(ctx, caddyJSON); err != nil {
 		return err
 	}
-	// Ta sama treść trafia do pliku startowego, żeby Caddy wstał bez entrypointd.
+	// The same content goes to the startup file, so Caddy comes up without entrypointd.
 	if err := pki.WriteFileAtomic(d.cfg.CaddyConfig(), caddyJSON, 0o640); err != nil {
-		return fmt.Errorf("zapis pliku startowego Caddy: %w", err)
+		return fmt.Errorf("writing the Caddy startup file: %w", err)
 	}
 	return nil
 }
 
-// apply stosuje rewizję według kroków z sekcji 4 specyfikacji.
+// apply applies a revision following the steps in section 4 of the specification.
 func (d *Daemon) apply(ctx context.Context, rev *store.Revision) error {
 	if err := d.st.SetStatus(ctx, rev.Num, store.StatusApplying, ""); err != nil {
 		return err
@@ -299,7 +299,7 @@ func (d *Daemon) apply(ctx context.Context, rev *store.Revision) error {
 		return d.rollback(ctx, rev, err)
 	}
 	if delay := d.cfg.Testing.ApplyDelay.Duration; delay > 0 {
-		d.log.Warn("tryb testowy: pauza po zapisie snapshotu", "rewizja", rev.Num, "pauza", delay)
+		d.log.Warn("test mode: pause after writing the snapshot", "revision", rev.Num, "pause", delay)
 		time.Sleep(delay)
 	}
 	if err := d.applyCaddy(ctx, caddyJSON); err != nil {
@@ -311,29 +311,29 @@ func (d *Daemon) apply(ctx context.Context, rev *store.Revision) error {
 	if err := d.markComponents(ctx, rev.Num, caddyJSON, snap); err != nil {
 		return err
 	}
-	d.log.Info("rewizja zastosowana", "rewizja", rev.Num, "opis", rev.Summary)
+	d.log.Info("revision applied", "revision", rev.Num, "summary", rev.Summary)
 	return nil
 }
 
-// rollback przywraca ostatnią zastosowaną rewizję w snapshocie (z odjętymi odwołaniami) i w Caddy.
+// rollback restores the last applied revision in the snapshot (minus revocations) and in Caddy.
 func (d *Daemon) rollback(ctx context.Context, rev *store.Revision, cause error) error {
-	d.log.Error("stosowanie rewizji nie powiodło się, wycofuję", "rewizja", rev.Num, "err", cause)
+	d.log.Error("applying the revision failed, rolling back", "revision", rev.Num, "err", cause)
 	_ = d.st.SetStatus(ctx, rev.Num, store.StatusFailed, cause.Error())
 	last, err := d.st.LastApplied(ctx)
 	if err != nil || last == nil {
 		// Nothing was applied before: authorize nothing rather than keep the failed revision (Strix vuln-0009).
 		empty := &spec.Spec{}
 		if werr := d.writeSnapshot(ctx, render.Authz(0, empty), empty); werr != nil {
-			d.log.Error("przywrócenie pustego snapshotu nie powiodło się", "err", werr)
+			d.log.Error("restoring an empty snapshot failed", "err", werr)
 		}
-		return fmt.Errorf("%v (brak rewizji do przywrócenia)", cause)
+		return fmt.Errorf("%v (no revision to restore)", cause)
 	}
 	snap := render.Authz(last.Num, last.Spec)
 	if err := d.writeSnapshot(ctx, snap, last.Spec); err != nil {
-		d.log.Error("przywrócenie snapshotu nie powiodło się", "err", err)
+		d.log.Error("restoring the snapshot failed", "err", err)
 	}
-	// Caddy przy błędzie /load zostaje przy poprzedniej konfiguracji; jeśli /load się udał,
-	// a zawiódł zapis pliku, przywracamy też Caddy.
+	// On a /load error Caddy keeps its previous configuration; if /load succeeded
+	// but writing the file failed, restore Caddy too.
 	if caddyJSON, err := render.Caddy(last.Spec, d.opts); err == nil {
 		if cur, err := d.caddy.Config(ctx); err == nil {
 			h1, _ := render.Hash(cur)
@@ -346,7 +346,7 @@ func (d *Daemon) rollback(ctx context.Context, rev *store.Revision, cause error)
 	return cause
 }
 
-// validate sprawdza konfigurację przed zapisem rewizji.
+// validate checks the configuration before the revision is saved.
 func (d *Daemon) validate(s *spec.Spec) error {
 	if err := s.Validate(d.cfg.PortPool.Start, d.cfg.PortPool.End); err != nil {
 		return err
@@ -368,7 +368,7 @@ func (d *Daemon) validate(s *spec.Spec) error {
 		return err
 	}
 	if _, err := os.Stat(d.cfg.CaddyBin); err != nil {
-		return nil // brak binarki (testy jednostkowe) — walidacja Caddy pominięta
+		return nil // no binary (unit tests): Caddy validation skipped
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -376,7 +376,7 @@ func (d *Daemon) validate(s *spec.Spec) error {
 	cmd.Env = []string{"HOME=" + tmp, "XDG_DATA_HOME=" + tmp, "XDG_CONFIG_HOME=" + tmp}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("Caddy odrzucił wyrenderowaną konfigurację: %s", lastLine(out))
+		return fmt.Errorf("Caddy rejected the rendered configuration: %s", lastLine(out))
 	}
 	return nil
 }
@@ -394,7 +394,7 @@ func lastLine(b []byte) string {
 	return s
 }
 
-// change tworzy rewizję i ją stosuje.
+// change creates a revision and applies it.
 func (d *Daemon) change(ctx context.Context, baseRev *int64, author string, mut store.Mutation) (*store.Revision, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -414,7 +414,7 @@ func (d *Daemon) change(ctx context.Context, baseRev *int64, author string, mut 
 	return final, applyErr
 }
 
-// driftLoop porównuje konfigurację Caddy z oczekiwaną i przywraca ją przy rozbieżności.
+// driftLoop compares Caddy's configuration with the desired one and restores it on a mismatch.
 func (d *Daemon) driftLoop(ctx context.Context) {
 	t := time.NewTicker(d.cfg.DriftInterval.Duration)
 	defer t.Stop()
@@ -443,16 +443,16 @@ func (d *Daemon) checkDrift(ctx context.Context) {
 	}
 	cur, err := d.caddy.Config(ctx)
 	if err != nil {
-		return // Caddy nie działa; po starcie wczyta plik startowy
+		return // Caddy is down; it loads the startup file when it starts
 	}
 	h1, _ := render.Hash(cur)
 	h2, _ := render.Hash(want)
 	if h1 == h2 {
 		return
 	}
-	d.log.Warn("wykryto dryf konfiguracji Caddy; stosuję ponownie", "rewizja", last.Num)
+	d.log.Warn("Caddy configuration drift detected; reapplying", "revision", last.Num)
 	if err := d.applyCaddy(ctx, want); err != nil {
-		d.log.Error("ponowne zastosowanie po dryfie nie powiodło się", "err", err)
+		d.log.Error("reapplying after drift failed", "err", err)
 		return
 	}
 	_ = d.markComponents(ctx, last.Num, want, render.Authz(last.Num, last.Spec))

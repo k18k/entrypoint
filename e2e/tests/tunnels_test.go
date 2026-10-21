@@ -1,6 +1,6 @@
 package tests
 
-// Eksperyment 2 i zestaw e2e 4: tożsamość i cykl życia replik, uprawnienia tuneli.
+// Experiment 2 and e2e suite 4: replica identity and lifecycle, tunnel permissions.
 
 import (
 	"encoding/json"
@@ -13,12 +13,12 @@ import (
 	h "github.com/k18k/entrypoint/e2e/harness"
 )
 
-// Atakujący serwer HTTP w kontenerze attacker (cel lokalny jego proxy).
+// An attacking HTTP server in the attacker container (its proxy's local target).
 func attackerServer(e *h.Env, port int) {
 	e.MustSh(h.Attacker, fmt.Sprintf(`nohup node -e "require('http').createServer((q,s)=>{if(q.url==='/stream'){s.write('x');return setInterval(()=>s.write('x'),200)}s.end(JSON.stringify({replica:'atk'}))}).listen(%d,'127.0.0.1')" > /tmp/atk-%d.log 2>&1 &`, port, port))
 }
 
-// 2.1: zmodyfikowany frpc podaje cudzą grupę, port lub serwis.
+// 2.1: a modified frpc claims someone else's group, port or service.
 func TestTunnels_2_1_ForeignGroupPortService(t *testing.T) {
 	e := apiSetup(t)
 	apiPort := e.Status().Status.Services[0].Port
@@ -39,14 +39,14 @@ func TestTunnels_2_1_ForeignGroupPortService(t *testing.T) {
 	load := e.StartLoad("https://api.ep.test/whoami", 2, 50*time.Millisecond)
 	e.RawFrpc(h.Attacker, "atk", b, proxies, 10)
 	var conf map[string]any
-	e.Eventually(30*time.Second, 500*time.Millisecond, "proxy atakującego w frps", func() error {
+	e.Eventually(30*time.Second, 500*time.Millisecond, "attacker proxy in frps", func() error {
 		out := e.MustSh(h.Gateway, `curl -s -u "entrypoint:$(cat /var/lib/entrypoint/secrets/frps-api)" http://127.0.0.1:7500/api/proxy/tcp/other.`+tid+`.x`)
 		var p struct {
 			Status string         `json:"status"`
 			Conf   map[string]any `json:"conf"`
 		}
 		if err := json.Unmarshal([]byte(out), &p); err != nil || p.Status != "online" {
-			return fmt.Errorf("brak: %s", out)
+			return fmt.Errorf("missing: %s", out)
 		}
 		conf = p.Conf
 		return nil
@@ -58,22 +58,22 @@ func TestTunnels_2_1_ForeignGroupPortService(t *testing.T) {
 	toAtk := h.Count(ss, func(s h.Sample) bool { return s.Replica == "atk" })
 	bad := h.Count(ss, func(s h.Sample) bool { return s.Status != 200 })
 	lb, _ := conf["loadBalancer"].(map[string]any)
-	result(t, "proxy z cudzą nazwą: %q; proxy z cudzą grupą i portem: grupa=%v port=%v (port other=%d, api=%d); proxy http: %q; żądań do atakującego: %d; błędy api: %d",
+	result(t, "proxy with a foreign name: %q; proxy with a foreign group and port: group=%v port=%v (port other=%d, api=%d); http proxy: %q; requests to the attacker: %d; api errors: %d",
 		proxies2["api."+tid+".x"], lb["group"], conf["remotePort"], otherPort, apiPort, proxies2["other."+tid+".web"], toAtk, bad)
 	if _, ok := proxies2["api."+tid+".x"]; ok {
-		t.Fatal("frps przyjął proxy z nazwą cudzego serwisu")
+		t.Fatal("frps accepted a proxy named after another service")
 	}
 	if lb["group"] != "svc-other" || int(conf["remotePort"].(float64)) != otherPort {
-		t.Fatalf("plugin nie nadpisał grupy/portu: %v", conf)
+		t.Fatalf("the plugin did not override group/port: %v", conf)
 	}
 	if toAtk > 0 || bad > 0 {
-		t.Fatalf("wpływ na serwis api: do atakującego %d, błędy %d", toAtk, bad)
+		t.Fatalf("impact on the api service: %d to the attacker, %d errors", toAtk, bad)
 	}
-	if !strings.Contains(j, "rejestracja proxy odrzucona") || !strings.Contains(j, "api."+tid+".x") {
-		t.Fatal("odrzucenie nie zostało zalogowane")
+	if !strings.Contains(j, "proxy registration rejected") || !strings.Contains(j, "api."+tid+".x") {
+		t.Fatal("the rejection was not logged")
 	}
 	if got := e.ReplicaSuffixes("api"); strings.Join(got, ",") != "a" {
-		t.Fatalf("repliki api: %v", got)
+		t.Fatalf("api replicas: %v", got)
 	}
 }
 
@@ -84,12 +84,12 @@ func pluginCall(e *h.Env, op string, content map[string]any) map[string]any {
 	out := e.MustSh(h.Gateway, `curl -s -X POST -H 'Content-Type: application/json' --data @/tmp/plugin-req.json http://127.0.0.1:7400/frps/handler?op=`+op+`; rm -f /tmp/plugin-req.json`)
 	var r map[string]any
 	if err := json.Unmarshal([]byte(out), &r); err != nil {
-		e.T.Fatalf("odpowiedź pluginu: %v: %s", err, out)
+		e.T.Fatalf("plugin response: %v: %s", err, out)
 	}
 	return r
 }
 
-// 2.2: pola NewProxy spoza białej listy, niedozwolone typy, token bez zakresu.
+// 2.2: NewProxy fields outside the allowlist, disallowed types, a token without scope.
 func TestTunnels_2_2_NewProxyWhitelist(t *testing.T) {
 	e := apiSetup(t)
 	apiPort := e.Status().Status.Services[0].Port
@@ -116,29 +116,29 @@ func TestTunnels_2_2_NewProxyWhitelist(t *testing.T) {
 		{"http_user", base(map[string]any{"http_user": "u"}), true},
 		{"sk (stcp)", base(map[string]any{"sk": "x"}), true},
 		{"multiplexer", base(map[string]any{"multiplexer": "httpconnect"}), true},
-		{"typ http", base(map[string]any{"proxy_type": "http"}), true},
-		{"typ udp", base(map[string]any{"proxy_type": "udp"}), true},
-		{"typ stcp", base(map[string]any{"proxy_type": "stcp"}), true},
-		{"nazwa innego serwisu", base(map[string]any{"proxy_name": "other." + tid + ".x"}), true},
-		{"nazwa bez repliki", base(map[string]any{"proxy_name": "api"}), true},
-		{"grupa/klucz/port nadpisane", base(map[string]any{"group": "svc-other", "group_key": "x", "remote_port": 1}), false},
+		{"http type", base(map[string]any{"proxy_type": "http"}), true},
+		{"udp type", base(map[string]any{"proxy_type": "udp"}), true},
+		{"stcp type", base(map[string]any{"proxy_type": "stcp"}), true},
+		{"another service's name", base(map[string]any{"proxy_name": "other." + tid + ".x"}), true},
+		{"name without a replica", base(map[string]any{"proxy_name": "api"}), true},
+		{"group/key/port overridden", base(map[string]any{"group": "svc-other", "group_key": "x", "remote_port": 1}), false},
 	}
 	var lines []string
 	for _, tc := range cases {
 		r := pluginCall(e, "NewProxy", tc.c)
 		rej, _ := r["reject"].(bool)
-		lines = append(lines, fmt.Sprintf("%s: odrzucone=%v", tc.name, rej))
+		lines = append(lines, fmt.Sprintf("%s: rejected=%v", tc.name, rej))
 		if rej != tc.reject {
-			t.Errorf("%s: reject=%v, oczekiwano %v (%v)", tc.name, rej, tc.reject, r)
+			t.Errorf("%s: reject=%v, expected %v (%v)", tc.name, rej, tc.reject, r)
 		}
 		if !tc.reject {
 			c := r["content"].(map[string]any)
 			if c["group"] != "svc-api" || int(c["remote_port"].(float64)) != apiPort || c["group_key"] == "x" {
-				t.Errorf("nie nadpisano: %v", c)
+				t.Errorf("not overridden: %v", c)
 			}
 		}
 	}
-	// Token bez zakresu: serwis usunięty razem z tokenem; token niepoprawny; pole user.
+	// A token without scope: a service removed together with its token; an invalid token; the user field.
 	e.Service("tmp")
 	_, ct := e.Token("tmp")
 	bt, _ := h.DecodeBundle(ct)
@@ -150,14 +150,14 @@ func TestTunnels_2_2_NewProxyWhitelist(t *testing.T) {
 		name, tok, user string
 		reject          bool
 	}{
-		{"token usuniętego serwisu", bt.Token, "", true},
-		{"zniekształcony token", "ept_000000000000_xyz", "", true},
-		{"poprawny token z polem user", b.Token, "admin", true},
-		{"poprawny token", b.Token, "", false},
+		{"token of a removed service", bt.Token, "", true},
+		{"mangled token", "ept_000000000000_xyz", "", true},
+		{"valid token with the user field", b.Token, "admin", true},
+		{"valid token", b.Token, "", false},
 	} {
 		r := login(c.tok, c.user)
 		rej, _ := r["reject"].(bool)
-		lines = append(lines, fmt.Sprintf("Login %s: odrzucone=%v %v", c.name, rej, r["reject_reason"]))
+		lines = append(lines, fmt.Sprintf("Login %s: rejected=%v %v", c.name, rej, r["reject_reason"]))
 		if rej != c.reject {
 			t.Errorf("Login %s: reject=%v", c.name, rej)
 		}
@@ -165,7 +165,7 @@ func TestTunnels_2_2_NewProxyWhitelist(t *testing.T) {
 	result(t, "%s", strings.Join(lines, "; "))
 }
 
-// 2.3: port usuniętego serwisu nigdy nie trafia do nowego.
+// 2.3: a removed service's port never goes to a new one.
 func TestTunnels_2_3_PortsNeverReused(t *testing.T) {
 	e := h.New(t)
 	e.FreshGateway()
@@ -177,20 +177,20 @@ func TestTunnels_2_3_PortsNeverReused(t *testing.T) {
 	reserved := e.MustExec(h.Gateway, "sqlite3", "/var/lib/entrypoint/db/entrypoint.db", "SELECT port || ':' || service_name FROM ports ORDER BY port")
 	ob, _ := h.DecodeBundle(oldTok)
 	r := pluginCall(e, "Login", map[string]any{"metas": map[string]string{"token": ob.Token}, "client_address": "172.28.0.99:1"})
-	result(t, "porty: x=%d, po usunięciu y=%d, nowy x=%d; rezerwacje: %s; stary token x po odtworzeniu serwisu odrzucony=%v",
+	result(t, "ports: x=%d, after removal y=%d, new x=%d; reservations: %s; old token x rejected after recreating the service=%v",
 		p1, p2, p3, strings.ReplaceAll(strings.TrimSpace(reserved), "\n", ", "), r["reject"])
 	if p2 == p1 || p3 == p1 || p3 == p2 {
-		t.Fatal("port został użyty ponownie")
+		t.Fatal("a port was reused")
 	}
 	if r["reject"] != true {
-		t.Fatal("token usuniętego serwisu działa dla nowego serwisu o tej samej nazwie")
+		t.Fatal("a removed service's token works for a new service with the same name")
 	}
 	if _, err := e.Exec(h.Gateway, "sqlite3", "/var/lib/entrypoint/db/entrypoint.db", "DELETE FROM ports"); err == nil {
-		t.Fatal("rezerwacje portów dały się usunąć")
+		t.Fatal("port reservations could be deleted")
 	}
 }
 
-// 2.4: restarty entrypointd i frps w różnej kolejności; status zgodny ze stanem frps.
+// 2.4: entrypointd and frps restarts in different orders; status matches frps state.
 func TestTunnels_2_4_StatusConsistency(t *testing.T) {
 	e := apiSetup(t)
 	twoReplicas(t, e, "adapter", 30000)
@@ -200,9 +200,9 @@ func TestTunnels_2_4_StatusConsistency(t *testing.T) {
 	}{
 		{"restart frps", []string{"systemctl restart entrypoint-frps"}},
 		{"restart entrypointd", []string{"systemctl restart entrypointd"}},
-		{"restart frps, potem entrypointd", []string{"systemctl restart entrypoint-frps", "systemctl restart entrypointd"}},
-		{"restart entrypointd, potem frps", []string{"systemctl restart entrypointd", "systemctl restart entrypoint-frps"}},
-		{"kill -9 obu naraz", []string{"systemctl kill -s KILL entrypointd entrypoint-frps"}},
+		{"restart frps, then entrypointd", []string{"systemctl restart entrypoint-frps", "systemctl restart entrypointd"}},
+		{"restart entrypointd, then frps", []string{"systemctl restart entrypointd", "systemctl restart entrypoint-frps"}},
+		{"kill -9 both at once", []string{"systemctl kill -s KILL entrypointd entrypoint-frps"}},
 	}
 	var lines []string
 	for _, st := range steps {
@@ -213,7 +213,7 @@ func TestTunnels_2_4_StatusConsistency(t *testing.T) {
 		}
 		t0 := time.Now()
 		e.WaitReplicas("api", []string{"a", "b"}, 60*time.Second)
-		// Porównanie: entrypointd vs bezpośrednio frps.
+		// Comparison: entrypointd vs frps directly.
 		var frpsOnline []string
 		for n, s := range e.FrpsProxies(h.Gateway) {
 			if s == "online" {
@@ -229,7 +229,7 @@ func TestTunnels_2_4_StatusConsistency(t *testing.T) {
 			}
 			same = same && found
 		}
-		lines = append(lines, fmt.Sprintf("%s: zgodne=%v po %s", st.name, same, ms(time.Since(t0))))
+		lines = append(lines, fmt.Sprintf("%s: consistent=%v after %s", st.name, same, ms(time.Since(t0))))
 		if !same {
 			t.Errorf("%s: entrypointd %v, frps %v", st.name, ep, frpsOnline)
 		}
@@ -237,7 +237,7 @@ func TestTunnels_2_4_StatusConsistency(t *testing.T) {
 	result(t, "%s", strings.Join(lines, "; "))
 }
 
-// 2.5: rotacja CA.
+// 2.5: CA rotation.
 func TestTunnels_2_5_CARotation(t *testing.T) {
 	e := apiSetup(t)
 	_, oldBundle := e.Token("api")
@@ -255,18 +255,18 @@ func TestTunnels_2_5_CARotation(t *testing.T) {
 	staleBefore := len(st.StaleClients) == 1 && st.StaleClients[0].ID == ob.TokenID()
 	e.MustEP("ca", "rotate", "switch")
 	t0 := time.Now()
-	// frps restartuje się z certyfikatem nowego CA (jednostka .path); y wraca, x jest odrzucany.
-	e.Eventually(60*time.Second, 500*time.Millisecond, "y połączony po przełączeniu", func() error {
+	// frps restarts with the new CA's certificate (.path unit); y comes back, x is rejected.
+	e.Eventually(60*time.Second, 500*time.Millisecond, "y connected after the switch", func() error {
 		s := y.MustStats()
 		if s.EventTime("disconnected") == 0 || s.EventTime("healthy") < s.EventTime("disconnected") {
-			return errors.New("y jeszcze nie wrócił")
+			return errors.New("y not back yet")
 		}
 		return nil
 	})
 	yBack := time.Since(t0)
-	e.Eventually(20*time.Second, 300*time.Millisecond, "tls_error klienta ze starym CA", func() error {
+	e.Eventually(20*time.Second, 300*time.Millisecond, "tls_error of the client with the old CA", func() error {
 		if !x.MustStats().HasEvent("tls_error") {
-			return errors.New("brak")
+			return errors.New("missing")
 		}
 		return nil
 	})
@@ -276,10 +276,10 @@ func TestTunnels_2_5_CARotation(t *testing.T) {
 	e.MustEP("ca", "rotate", "finish")
 	_, newOnly := e.Token("api")
 	nb, _ := h.DecodeBundle(newOnly)
-	result(t, "pakiet start: %d CA; ca status przed przełączeniem wskazuje klienta ze starym pakietem: %v; po przełączeniu y wrócił po %s, x (tylko stare CA) połączony ponownie: %v, tls_error=%v; repliki: %v; pakiet po finish: %d CA",
+	result(t, "bundle at start: %d CAs; ca status before the switch shows the client with the old bundle: %v; after the switch y came back after %s, x (old CA only) reconnected: %v, tls_error=%v; replicas: %v; bundle after finish: %d CAs",
 		len(bb.CAs), staleBefore, ms(yBack), xBack, xs.HasEvent("tls_error"), reps, len(nb.CAs))
 	if len(bb.CAs) != 2 || !staleBefore || xBack || strings.Join(reps, ",") != "y" || len(nb.CAs) != 1 {
-		t.Fatal("rotacja CA nie spełnia kryterium")
+		t.Fatal("CA rotation does not meet the criterion")
 	}
 }
 

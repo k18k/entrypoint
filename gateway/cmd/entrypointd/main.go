@@ -1,4 +1,4 @@
-// entrypointd: warstwa sterowania bramy.
+// entrypointd: the gateway's control plane.
 package main
 
 import (
@@ -17,8 +17,8 @@ import (
 )
 
 func main() {
-	cfgPath := flag.String("config", config.DefaultConfigPath, "plik konfiguracji")
-	showVersion := flag.Bool("version", false, "wypisz wersję")
+	cfgPath := flag.String("config", config.DefaultConfigPath, "configuration file")
+	showVersion := flag.Bool("version", false, "print the version")
 	flag.Parse()
 	if *showVersion {
 		fmt.Println(version.Version)
@@ -27,7 +27,7 @@ func main() {
 	log := slog.New(redact.Handler{Handler: slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})})
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
-		log.Error("konfiguracja", "err", err)
+		log.Error("configuration", "err", err)
 		os.Exit(1)
 	}
 	d, err := daemon.New(cfg, log)
@@ -38,7 +38,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 	if err := d.Run(ctx); err != nil {
-		log.Error("entrypointd zakończony błędem", "err", err)
+		log.Error("entrypointd exited with an error", "err", err)
 		os.Exit(1)
 	}
 }

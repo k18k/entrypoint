@@ -42,7 +42,7 @@ func (e *Env) Status() Status {
 	return s
 }
 
-// Replicas zwraca posortowane nazwy replik serwisu według entrypointd.
+// Replicas returns the service's sorted replica names according to entrypointd.
 func (e *Env) Replicas(service string) []string {
 	e.T.Helper()
 	var out []string
@@ -57,7 +57,7 @@ func (e *Env) Replicas(service string) []string {
 	return out
 }
 
-// ReplicaSuffixes zwraca ostatnie człony nazw replik (np. "a", "b").
+// ReplicaSuffixes returns the last parts of the replica names (e.g. "a", "b").
 func (e *Env) ReplicaSuffixes(service string) []string {
 	var out []string
 	for _, n := range e.Replicas(service) {
@@ -72,17 +72,17 @@ func (e *Env) WaitReplicas(service string, want []string, timeout time.Duration)
 	e.T.Helper()
 	start := time.Now()
 	sort.Strings(want)
-	e.Eventually(timeout, 250*time.Millisecond, fmt.Sprintf("repliki %s = %v", service, want), func() error {
+	e.Eventually(timeout, 250*time.Millisecond, fmt.Sprintf("replicas %s = %v", service, want), func() error {
 		got := e.ReplicaSuffixes(service)
 		if strings.Join(got, ",") != strings.Join(want, ",") {
-			return fmt.Errorf("są %v", got)
+			return fmt.Errorf("got %v", got)
 		}
 		return nil
 	})
 	return time.Since(start)
 }
 
-// FrpsProxies czyta stan proxy bezpośrednio z API frps (porównanie ze statusem entrypointd).
+// FrpsProxies reads the proxy state straight from the frps API (to compare with entrypointd's status).
 func (e *Env) FrpsProxies(container string) map[string]string {
 	e.T.Helper()
 	m, err := e.TryFrpsProxies(container)
@@ -92,7 +92,7 @@ func (e *Env) FrpsProxies(container string) map[string]string {
 	return m
 }
 
-// TryFrpsProxies jak FrpsProxies, ale zwraca błąd (np. w trakcie restartu frps).
+// TryFrpsProxies is like FrpsProxies but returns the error (e.g. during an frps restart).
 func (e *Env) TryFrpsProxies(container string) (map[string]string, error) {
 	out, err := e.Sh(container, `curl -sf -u "entrypoint:$(cat /var/lib/entrypoint/secrets/frps-api)" http://127.0.0.1:7500/api/proxy/tcp`)
 	if err != nil {
@@ -114,7 +114,7 @@ func (e *Env) TryFrpsProxies(container string) (map[string]string, error) {
 	return m, nil
 }
 
-// Journal zwraca dziennik usługi bramy od początku testu.
+// Journal returns a gateway service's journal since the start of the test.
 func (e *Env) Journal(container, unit string) string {
 	out, _ := e.Exec(container, "journalctl", "-u", unit, "--no-pager", "-o", "cat", "--since", "@"+fmt.Sprint(e.start.Unix()))
 	return out

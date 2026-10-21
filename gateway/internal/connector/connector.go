@@ -1,8 +1,8 @@
-// Pakiet connector to proces pośredniczący nad oficjalną binarką frpc.
+// Package connector is a supervising process around the official frpc binary.
 //
-// Buduje konfigurację frpc z pakietu połączenia (zawsze z weryfikacją CA i nazwy serwera
-// oraz z health checkiem), prowadzi reconnect i drain, a stan zgłasza zdarzeniami JSON
-// na standardowym wyjściu. Nigdy nie wypisuje tokenu ani pakietu połączenia.
+// It builds the frpc configuration from the connection bundle (always verifying the CA and
+// server name, always with a health check), handles reconnects and drain, and reports state
+// as JSON events on standard output. It never prints the token or the connection bundle.
 package connector
 
 import (
@@ -33,24 +33,24 @@ import (
 	"github.com/k18k/entrypoint/gateway/internal/token"
 )
 
-// Options to parametry tunelu.
+// Options are the tunnel parameters.
 type Options struct {
 	Bundle         token.Bundle
 	Service        string
 	Upstream       string // http://host:port
-	Health         string // ścieżka HTTP; pusta = health check TCP
-	HealthInterval int    // sekundy
+	Health         string // HTTP path; empty = TCP health check
+	HealthInterval int    // seconds
 	HealthMaxFail  int
 	DrainTimeout   time.Duration
 	Replica        string
 	FrpcPath       string
-	ParentPipe     bool // koniec stdin = śmierć rodzica
-	InsecureDev    bool // tylko deweloperski tryb bez weryfikacji CA
+	ParentPipe     bool // end of stdin = parent died
+	InsecureDev    bool // development-only mode without CA verification
 	Events         io.Writer
 	Log            io.Writer
 }
 
-// Event to zdarzenie dla SDK.
+// Event is an event for the SDK.
 type Event struct {
 	Event     string `json:"event"`
 	Replica   string `json:"replica,omitempty"`
@@ -60,7 +60,7 @@ type Event struct {
 	Time      string `json:"time"`
 }
 
-// Kody wyjścia konektora.
+// Connector exit codes.
 const (
 	ExitOK      = 0
 	ExitError   = 1
@@ -79,11 +79,11 @@ type Connector struct {
 	evMu sync.Mutex
 	mu   sync.Mutex
 	cmd  *exec.Cmd
-	done chan struct{} // zamykany po zakończeniu bieżącego frpc
+	done chan struct{} // closed when the current frpc exits
 
-	state      string // ostatni stan proxy
+	state      string // last proxy state
 	connected  bool
-	restartNow bool // zamierzony restart frpc, bez backoffu
+	restartNow bool // intended frpc restart, no backoff
 	lastProbe  time.Time
 	fatal      chan Event
 	draining   bool
@@ -91,7 +91,7 @@ type Connector struct {
 
 var replicaRe = regexp.MustCompile(`[^a-z0-9-]+`)
 
-// DefaultReplica tworzy nazwę repliki z nazwy hosta i losowego sufiksu.
+// DefaultReplica makes a replica name from the host name and a random suffix.
 func DefaultReplica() string {
 	h, _ := os.Hostname()
 	h = strings.Trim(replicaRe.ReplaceAllString(strings.ToLower(h), "-"), "-")
@@ -108,20 +108,20 @@ func DefaultReplica() string {
 
 func New(o Options) (*Connector, error) {
 	if o.Bundle.Server == "" {
-		return nil, errors.New("brak pakietu połączenia (ENTRYPOINT_CONNECT)")
+		return nil, errors.New("no connection bundle (ENTRYPOINT_CONNECT)")
 	}
 	if o.Service == "" {
 		o.Service = o.Bundle.Service
 	}
 	if o.Bundle.Service != "" && o.Service != o.Bundle.Service {
-		return nil, fmt.Errorf("pakiet połączenia jest dla serwisu %q, a nie %q", o.Bundle.Service, o.Service)
+		return nil, fmt.Errorf("the connection bundle is for service %q, not %q", o.Bundle.Service, o.Service)
 	}
 	if o.Replica == "" {
 		o.Replica = DefaultReplica()
 	}
 	o.Replica = strings.Trim(replicaRe.ReplaceAllString(strings.ToLower(o.Replica), "-"), "-")
 	if o.Replica == "" || len(o.Replica) > 32 {
-		return nil, errors.New("nazwa repliki: 1-32 znaki [a-z0-9-]")
+		return nil, errors.New("replica name: 1-32 characters [a-z0-9-]")
 	}
 	// frpc renders its whole config as a Go template, so "{{" in any value we write would be
 	// evaluated (e.g. leak the token env var into the health-check path) — Strix vuln-0004.
@@ -140,17 +140,17 @@ func New(o Options) (*Connector, error) {
 		o.HealthMaxFail = 2
 	}
 	if !o.InsecureDev && len(o.Bundle.CAs) == 0 {
-		return nil, errors.New("brak zaufanego CA w pakiecie połączenia; konektor odmawia startu")
+		return nil, errors.New("no trusted CA in the connection bundle; the connector refuses to start")
 	}
 	id, _, err := token.Parse(o.Bundle.Token)
 	if err != nil {
-		return nil, errors.New("niepoprawny token w pakiecie połączenia")
+		return nil, errors.New("invalid token in the connection bundle")
 	}
 	if o.FrpcPath == "" {
 		o.FrpcPath = findFrpc()
 	}
 	if _, err := os.Stat(o.FrpcPath); err != nil {
-		return nil, fmt.Errorf("nie znaleziono frpc (%s); ustaw ENTRYPOINT_FRPC", o.FrpcPath)
+		return nil, fmt.Errorf("frpc not found (%s); set ENTRYPOINT_FRPC", o.FrpcPath)
 	}
 	if o.Events == nil {
 		o.Events = os.Stdout
@@ -191,7 +191,7 @@ func (c *Connector) emit(e Event) {
 	e.Reason = redact.String(e.Reason)
 	switch e.Event {
 	case "tls_error", "connect_failed", "revoked", "auth_failed", "rejected":
-		// Przyczyny błędów połączenia są widoczne także w logu aplikacji, zanim SDK zgłosi gotowość.
+		// Connection error causes also show up in the app log before the SDK reports ready.
 		fmt.Fprintf(c.o.Log, "entrypoint-connector: %s: %s\n", e.Event, e.Reason)
 	}
 	b, _ := json.Marshal(e)
@@ -214,7 +214,7 @@ func freePort() (int, error) {
 func (c *Connector) writeConfig(withProxy bool) error {
 	u, err := url.Parse(c.o.Upstream)
 	if err != nil || u.Scheme != "http" || u.Host == "" {
-		return fmt.Errorf("upstream musi mieć postać http://host:port, a jest %q", c.o.Upstream)
+		return fmt.Errorf("upstream must look like http://host:port, got %q", c.o.Upstream)
 	}
 	host, portS, err := net.SplitHostPort(u.Host)
 	if err != nil {
@@ -235,7 +235,7 @@ func (c *Connector) writeConfig(withProxy bool) error {
 		"serverAddr":    c.o.Bundle.Server,
 		"serverPort":    c.o.Bundle.Port,
 		"loginFailExit": false,
-		// Token trafia do frpc wyłącznie przez zmienną środowiskową, nie do pliku.
+		// The token reaches frpc only through an environment variable, never a file.
 		"metadatas": map[string]string{"token": "{{ .Envs.EP_FRPC_TOKEN }}", "ca": strings.Join(fps, ",")},
 		"transport": map[string]any{
 			"tls":               tlsCfg,
@@ -266,7 +266,7 @@ func (c *Connector) writeConfig(withProxy bool) error {
 	return pki.WriteFileAtomic(c.cfgPath, b, 0o600)
 }
 
-// Run prowadzi tunel do zakończenia. Zwraca kod wyjścia.
+// Run runs the tunnel until it ends. It returns the exit code.
 func (c *Connector) Run(ctx context.Context, commands <-chan Command) int {
 	var err error
 	c.dir, err = os.MkdirTemp("", "entrypoint-connector-")
@@ -293,7 +293,7 @@ func (c *Connector) Run(ctx context.Context, commands <-chan Command) int {
 		return ExitError
 	}
 	if c.o.InsecureDev {
-		c.logf("UWAGA: tryb deweloperski bez weryfikacji certyfikatu bramy. Nie używaj go produkcyjnie.")
+		c.logf("WARNING: development mode without gateway certificate verification. Do not use it in production.")
 	}
 	c.emit(Event{Event: "starting"})
 
@@ -323,8 +323,8 @@ func (c *Connector) Run(ctx context.Context, commands <-chan Command) int {
 			return stop(ExitAuth)
 		case cmd, ok := <-commands:
 			if !ok {
-				// Rodzic zginął (zamknięta rura): kończymy frpc i siebie.
-				c.logf("standardowe wejście zamknięte; kończę frpc i konektor")
+				// The parent died (closed pipe): stop frpc and ourselves.
+				c.logf("standard input closed; stopping frpc and the connector")
 				return stop(ExitOK)
 			}
 			switch cmd.Cmd {
@@ -341,13 +341,13 @@ func (c *Connector) Run(ctx context.Context, commands <-chan Command) int {
 	}
 }
 
-// Command to polecenie od SDK (linia JSON na stdin) albo sygnał.
+// Command is a command from the SDK (a JSON line on stdin) or a signal.
 type Command struct {
 	Cmd       string `json:"cmd"` // drain, drained, stop
 	TimeoutMs int64  `json:"timeoutMs,omitempty"`
 }
 
-// ReadCommands czyta polecenia z r; kanał zamyka się na EOF.
+// ReadCommands reads commands from r; the channel closes on EOF.
 func ReadCommands(r io.Reader) <-chan Command {
 	ch := make(chan Command, 4)
 	go func() {
@@ -363,7 +363,7 @@ func ReadCommands(r io.Reader) <-chan Command {
 	return ch
 }
 
-// drain: 1) wycofanie z grupy, 2) wygaszanie połączeń, 3) zakończenie frpc.
+// drain: 1) withdraw from the group, 2) let connections finish, 3) stop frpc.
 func (c *Connector) drain(ctx context.Context, timeout time.Duration, commands <-chan Command) int {
 	c.mu.Lock()
 	c.draining = true
@@ -371,7 +371,7 @@ func (c *Connector) drain(ctx context.Context, timeout time.Duration, commands <
 	c.emit(Event{Event: "draining", TimeoutMs: timeout.Milliseconds()})
 	deadline := time.After(timeout)
 	if err := c.withdraw(ctx); err != nil {
-		c.logf("wycofanie z grupy nie powiodło się: %v; kończę frpc", err)
+		c.logf("withdrawing from the group failed: %v; stopping frpc", err)
 		return ExitError
 	}
 	c.emit(Event{Event: "withdrawn"})
@@ -391,8 +391,8 @@ func (c *Connector) drain(ctx context.Context, timeout time.Duration, commands <
 	}
 }
 
-// withdraw zamyka proxy we frpc (CloseProxy), więc frps nie kieruje do repliki nowych połączeń.
-// Istniejące połączenia działają dalej.
+// withdraw closes the proxy in frpc (CloseProxy), so frps sends no new connections to the replica.
+// Existing connections keep working.
 func (c *Connector) withdraw(ctx context.Context) error {
 	if err := c.writeConfig(false); err != nil {
 		return err
@@ -405,9 +405,9 @@ func (c *Connector) withdraw(ctx context.Context) error {
 	}
 	resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("reload frpc: kod %d", resp.StatusCode)
+		return fmt.Errorf("reload frpc: status %d", resp.StatusCode)
 	}
-	// Czekamy, aż proxy zniknie ze statusu frpc.
+	// Wait until the proxy disappears from frpc's status.
 	for i := 0; i < 50; i++ {
 		ph, _ := c.proxyPhase(ctx)
 		if ph == "" {
@@ -415,7 +415,7 @@ func (c *Connector) withdraw(ctx context.Context) error {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return errors.New("proxy nie zostało zamknięte w 5 s")
+	return errors.New("proxy was not closed within 5 s")
 }
 
 func (c *Connector) proxyPhase(ctx context.Context) (string, string) {
@@ -444,7 +444,7 @@ func (c *Connector) proxyPhase(ctx context.Context) (string, string) {
 	return "", ""
 }
 
-// pollStatus tłumaczy stan proxy frpc na zdarzenia healthy/unhealthy.
+// pollStatus turns frpc's proxy state into healthy/unhealthy events.
 func (c *Connector) pollStatus(ctx context.Context) {
 	t := time.NewTicker(300 * time.Millisecond)
 	defer t.Stop()
@@ -470,11 +470,11 @@ func (c *Connector) pollStatus(ctx context.Context) {
 		case "running":
 			c.emit(Event{Event: "healthy"})
 		case "check failed":
-			c.emit(Event{Event: "unhealthy", Reason: "health check nie przechodzi"})
-			// frpc wycofał proxy z grupy, ale połączenia keep-alive Caddy przypięte do tej
-			// repliki nadal by do niej trafiały. Restart frpc je zrywa; replika wraca do grupy
-			// dopiero po udanym health checku.
-			c.logf("health check nie przechodzi: restartuję frpc, żeby zerwać istniejące połączenia")
+			c.emit(Event{Event: "unhealthy", Reason: "health check failing"})
+			// frpc withdrew the proxy from the group, but Caddy keep-alive connections pinned to this
+			// replica would still reach it. Restarting frpc drops them; the replica rejoins the group
+			// only after a passing health check.
+			c.logf("health check failing: restarting frpc to drop existing connections")
 			c.mu.Lock()
 			c.restartNow = true
 			c.mu.Unlock()
@@ -496,7 +496,7 @@ func (c *Connector) fatalOnce(e Event) {
 	}
 }
 
-// supervise uruchamia frpc i restartuje go z wykładniczym backoffem.
+// supervise runs frpc and restarts it with exponential backoff.
 func (c *Connector) supervise(ctx context.Context) {
 	backoff := time.Second
 	for ctx.Err() == nil {
@@ -506,7 +506,7 @@ func (c *Connector) supervise(ctx context.Context) {
 			return
 		}
 		if c.connected {
-			c.emit(Event{Event: "disconnected", Reason: "frpc zakończył działanie"})
+			c.emit(Event{Event: "disconnected", Reason: "frpc exited"})
 		}
 		c.connected = false
 		if time.Since(start) > time.Minute {
@@ -519,7 +519,7 @@ func (c *Connector) supervise(ctx context.Context) {
 		if now {
 			continue
 		}
-		c.logf("frpc zakończony (%v); ponowny start za %s", err, backoff)
+		c.logf("frpc exited (%v); restarting in %s", err, backoff)
 		select {
 		case <-ctx.Done():
 			return
@@ -559,7 +559,7 @@ func (c *Connector) runFrpc(ctx context.Context) error {
 	return err
 }
 
-// frpcEnv przekazuje token tylko frpc; pakiet połączenia nie trafia do jego środowiska.
+// frpcEnv passes only the token to frpc; the connection bundle never reaches its environment.
 func frpcEnv(tok string) []string {
 	var env []string
 	for _, kv := range os.Environ() {
@@ -582,11 +582,11 @@ func (c *Connector) handleLine(line string) {
 			c.emit(Event{Event: "connected"})
 		}
 	case strings.Contains(line, "ep:revoked"):
-		c.fatalOnce(Event{Event: "revoked", Reason: "token został odwołany"})
+		c.fatalOnce(Event{Event: "revoked", Reason: "the token was revoked"})
 	case strings.Contains(line, "ep:unknown_token"):
 		authFailures++
 		if authFailures >= 3 {
-			c.fatalOnce(Event{Event: "auth_failed", Reason: "brama nie zna tego tokenu"})
+			c.fatalOnce(Event{Event: "auth_failed", Reason: "the gateway does not know this token"})
 		}
 	case strings.Contains(line, "connect to server error"):
 		go c.probeTLS()
@@ -594,13 +594,13 @@ func (c *Connector) handleLine(line string) {
 		strings.Contains(line, "control writer is closing"), strings.Contains(line, "pong message contains error"):
 		if c.connected {
 			c.connected = false
-			c.emit(Event{Event: "disconnected", Reason: "sesja z bramą zerwana"})
+			c.emit(Event{Event: "disconnected", Reason: "session with the gateway dropped"})
 		}
 	}
 }
 
-// probeTLS sprawdza certyfikat bramy tymi samymi CA co frpc, żeby podać czytelną przyczynę
-// błędu połączenia (frpc przy multipleksowaniu zgłasza tylko „session shutdown”).
+// probeTLS checks the gateway certificate against the same CAs as frpc, to give a readable cause
+// for connection errors (with multiplexing frpc only reports "session shutdown").
 func (c *Connector) probeTLS() {
 	c.mu.Lock()
 	if time.Since(c.lastProbe) < 3*time.Second {
@@ -625,11 +625,11 @@ func (c *Connector) probeTLS() {
 		var cie x509.CertificateInvalidError
 		switch {
 		case errors.As(err, &uae):
-			c.emit(Event{Event: "tls_error", Reason: "certyfikat bramy nie jest podpisany przez żadne CA z pakietu połączenia (rotacja CA? wydaj nowy token)"})
+			c.emit(Event{Event: "tls_error", Reason: "the gateway certificate is not signed by any CA from the connection bundle (CA rotation? issue a new token)"})
 		case errors.As(err, &hne):
-			c.emit(Event{Event: "tls_error", Reason: "certyfikat bramy nie pasuje do nazwy " + c.o.Bundle.Server})
+			c.emit(Event{Event: "tls_error", Reason: "the gateway certificate does not match the name " + c.o.Bundle.Server})
 		case errors.As(err, &cie):
-			c.emit(Event{Event: "tls_error", Reason: "certyfikat bramy jest nieważny: " + cie.Error()})
+			c.emit(Event{Event: "tls_error", Reason: "the gateway certificate is invalid: " + cie.Error()})
 		default:
 			c.emit(Event{Event: "connect_failed", Reason: err.Error()})
 		}

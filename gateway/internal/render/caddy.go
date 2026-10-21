@@ -1,4 +1,4 @@
-// Pakiet render tworzy artefakty rewizji: konfigurację Caddy (JSON) i snapshot autoryzacji.
+// Package render builds a revision's artifacts: the Caddy configuration (JSON) and the authorization snapshot.
 package render
 
 import (
@@ -15,7 +15,7 @@ import (
 
 type obj = map[string]any
 
-// CaddyOptions to parametry renderowania niezależne od rewizji.
+// CaddyOptions are rendering parameters that don't depend on the revision.
 type CaddyOptions struct {
 	AdminSocket string
 	StorageDir  string
@@ -52,7 +52,7 @@ func issuer(o CaddyOptions, staging bool) obj {
 	return is
 }
 
-// matchPrefix buduje matcher ścieżki na granicy segmentu: /api obejmuje /api i /api/x, ale nie /apix.
+// matchPrefix builds a path matcher on a segment boundary: /api covers /api and /api/x, but not /apix.
 func matchPrefix(p string) []string {
 	return []string{p, p + "/*"}
 }
@@ -76,16 +76,16 @@ func routeHandlers(r spec.Route, s *spec.Spec) []any {
 			"response_header_timeout": fmt.Sprintf("%ds", r.EffectiveHeaderTimeout()),
 			"keep_alive":              obj{"idle_timeout": "4s"},
 		},
-		// Przeładowanie konfiguracji nie zrywa WebSocketów od razu.
+		// A configuration reload doesn't drop WebSockets right away.
 		"stream_close_delay": "1h",
-		// Przed Caddy nie stoi zaufane proxy: nagłówki adresu klienta od klienta są usuwane.
-		// X-Forwarded-For/Proto/Host Caddy ustawia sam.
+		// No trusted proxy sits in front of Caddy: client-supplied client-address headers are removed.
+		// Caddy sets X-Forwarded-For/Proto/Host itself.
 		"headers": obj{"request": obj{"delete": []string{"X-Real-IP", "Forwarded", "X-Client-IP", "True-Client-IP", "CF-Connecting-IP"}}},
 	}
 	return append(hs, rp)
 }
 
-// SortHosts ustawia dokładne hosty przed wildcardami, dalej alfabetycznie.
+// SortHosts puts exact hosts before wildcards, then sorts alphabetically.
 func SortHosts(hosts []string) {
 	sort.Slice(hosts, func(i, j int) bool {
 		wi, wj := strings.HasPrefix(hosts[i], "*."), strings.HasPrefix(hosts[j], "*.")
@@ -96,7 +96,7 @@ func SortHosts(hosts []string) {
 	})
 }
 
-// Caddy renderuje pełną konfigurację Caddy dla danej konfiguracji.
+// Caddy renders the full Caddy configuration for the given spec.
 func Caddy(s *spec.Spec, o CaddyOptions) ([]byte, error) {
 	byHost := map[string][]spec.Route{}
 	for _, r := range s.Routes {
@@ -112,7 +112,7 @@ func Caddy(s *spec.Spec, o CaddyOptions) ([]byte, error) {
 	var exactProd, exactStaging, wildProd, wildStaging, automate, skip []string
 	for _, h := range hosts {
 		rs := byHost[h]
-		// Najdłuższy prefiks wygrywa: sortujemy malejąco po długości.
+		// The longest prefix wins: sort by length, descending.
 		sort.Slice(rs, func(i, j int) bool {
 			if len(rs[i].Prefix) != len(rs[j].Prefix) {
 				return len(rs[i].Prefix) > len(rs[j].Prefix)
@@ -159,7 +159,7 @@ func Caddy(s *spec.Spec, o CaddyOptions) ([]byte, error) {
 			exactProd = append(exactProd, names...)
 		}
 	}
-	// Host bez trasy: 404 (dotyczy tylko żądań, dla których TLS w ogóle się zestawił).
+	// Host without a route: 404 (only for requests where TLS was established at all).
 	routes = append(routes, obj{"handle": []any{obj{"handler": "static_response", "status_code": 404}}})
 
 	server := obj{
@@ -187,7 +187,7 @@ func Caddy(s *spec.Spec, o CaddyOptions) ([]byte, error) {
 	if len(wildStaging) > 0 {
 		policies = append(policies, obj{"subjects": wildStaging, "issuers": []any{issuer(o, true)}, "on_demand": true})
 	}
-	// Polityka domyślna (bez subjects) też korzysta z naszego CA, nigdy z domyślnych Caddy.
+	// The default policy (no subjects) also uses our CA, never Caddy's defaults.
 	policies = append(policies, obj{"issuers": []any{issuer(o, false)}})
 
 	automation := obj{
@@ -220,7 +220,7 @@ func Caddy(s *spec.Spec, o CaddyOptions) ([]byte, error) {
 	return json.MarshalIndent(cfg, "", "  ")
 }
 
-// Hash liczy hash konfiguracji w postaci kanonicznej (klucze posortowane, bez formatowania).
+// Hash computes the hash of the configuration in canonical form (sorted keys, no formatting).
 func Hash(cfg []byte) (string, error) {
 	var v any
 	if err := json.Unmarshal(cfg, &v); err != nil {
