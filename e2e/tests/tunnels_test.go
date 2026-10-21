@@ -206,6 +206,8 @@ func TestTunnels_2_4_StatusConsistency(t *testing.T) {
 	}
 	var lines []string
 	for _, st := range steps {
+		// Steps follow each other within seconds; keep systemd's start limit (5 in 10 s) out of the way.
+		e.MustSh(h.Gateway, "systemctl reset-failed entrypointd entrypoint-frps")
 		for _, c := range st.cmds {
 			e.MustSh(h.Gateway, c)
 		}
