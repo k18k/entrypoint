@@ -572,8 +572,10 @@ func frpcEnv(tok string) []string {
 }
 
 func (c *Connector) handleLine(line string) {
-	l := redact.String(line)
-	fmt.Fprintln(c.o.Log, "frpc: "+l)
+	// frpc logs every request to its admin API, which the connector polls for health.
+	if !strings.Contains(line, "http/middleware.go") {
+		fmt.Fprintln(c.o.Log, "frpc: "+redact.String(line))
+	}
 	switch {
 	case strings.Contains(line, "login to server success"):
 		authFailures = 0

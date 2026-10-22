@@ -63,7 +63,7 @@ function NewApp({ onClose, onCreated }: { onClose: () => void; onCreated: (c: Cr
         }}
       >
         <Field label="Name" hint="Lowercase letters, digits and dashes, e.g. vatro-web.">
-          <input value={name} onChange={(e) => setName(e.target.value.toLowerCase())} pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?" required autoFocus />
+          <input value={name} onChange={(e) => setName(e.target.value.toLowerCase())} pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?" required autoFocus />
         </Field>
         <Field label="Hosts" hint="One or more, e.g. vatro.app www.vatro.app or app.vatro.app/api. Point their DNS A records at the gateway.">
           <textarea rows={2} value={hosts} onChange={(e) => setHosts(e.target.value)} placeholder="vatro.app" />
@@ -163,7 +163,7 @@ export function Apps() {
                   {s.routes?.length ? (
                     s.routes.map((r) => (
                       <a key={r} href={`https://${r}`} target="_blank" rel="noreferrer" className="pill">
-                        {r}
+                        {r.replace(/\/$/, "")}
                       </a>
                     ))
                   ) : (

@@ -73,7 +73,7 @@ function KeyDialog({ purpose, version, names, onClose }: { purpose: Purpose; ver
             label={purpose === "expose" ? "Name in the VPN" : "This app's name in the VPN"}
             hint={purpose === "expose" ? "Other machines connect to <name>:<port>, e.g. vatro-postgres." : "e.g. vatro-app"}
           >
-            <input value={name} onChange={(e) => setName(e.target.value.toLowerCase())} pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?" required autoFocus />
+            <input value={name} onChange={(e) => setName(e.target.value.toLowerCase())} pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?" required autoFocus />
           </Field>
         )}
         {purpose === "forward" && (

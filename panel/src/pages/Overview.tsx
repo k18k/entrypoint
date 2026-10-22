@@ -62,7 +62,7 @@ export function Overview({ go }: { go: (p: string) => void }) {
               {s.services.map((x) => (
                 <tr key={x.name}>
                   <td>{x.name}</td>
-                  <td>{x.routes?.join(", ") || <span className="muted">no route</span>}</td>
+                  <td>{x.routes?.map((r) => r.replace(/\/$/, "")).join(", ") || <span className="muted">no route</span>}</td>
                   <td>
                     {x.replicas.length === 0 ? (
                       <Badge tone="neutral">none</Badge>
