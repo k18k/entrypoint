@@ -70,7 +70,7 @@ sudo entrypoint panel register     # a one-time link, valid for 60 seconds, that
 sudo entrypoint panel keys         # registered passkeys; `panel keys rm <id>` revokes one
 ```
 
-Sign-in is with passkeys (WebAuthn) only, there are no passwords: open the link and save the passkey in a password manager (Proton Pass, 1Password, iCloud Keychain…) or on a security key such as a YubiKey. User verification (PIN or biometrics) is required. Adding or removing a passkey signs out every session.
+Sign-in is with passkeys (WebAuthn) only, there are no passwords: open the link and save the passkey in a password manager (Proton Pass, 1Password, iCloud Keychain…) or on a security key such as a YubiKey. User verification (PIN or biometrics) is required. You can have several passkeys (keep a backup, e.g. a password manager and a YubiKey): add more with new links or with **Add passkey** on the panel's Passkeys page, where you can also remove lost ones. Adding or removing a passkey signs out every other session.
 
 Everything the CLI does for day-to-day work is in the panel at `https://panel.example.com`: apps (a service with its hosts and a token, created in one step, with ready commands to connect replicas), routes, tokens, VPN machines and keys, DNS records and revisions. The panel is its own process behind Caddy and talks to entrypointd through its local API, so the gateway keeps working when the panel is down.
 

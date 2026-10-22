@@ -217,3 +217,52 @@ func TestLoginRateLimit(t *testing.T) {
 		t.Fatalf("after %d failures: %d", maxFails, w.Code)
 	}
 }
+
+// A signed-in administrator adds a second passkey (no CLI link), signs in with it, removes the
+// first one; the last passkey cannot be removed.
+func TestMultiplePasskeys(t *testing.T) {
+	e := setup(t)
+	first, second := &softKey{Origin: origin}, &softKey{Origin: origin}
+	cookie, csrf := cookieOf(e.register(first))
+	auth := map[string]string{"Cookie": cookie["Cookie"], "X-CSRF-Token": csrf}
+
+	if w := e.do("POST", "/api/passkeys/begin", "", cookie); w.Code != 403 {
+		t.Fatalf("add without CSRF: %d", w.Code)
+	}
+	w := e.do("POST", "/api/passkeys/begin", "", auth)
+	var b struct {
+		Ceremony string          `json:"ceremony"`
+		Options  json.RawMessage `json:"options"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &b)
+	body, _ := second.Create(b.Options)
+	if w := e.do("POST", "/api/register/finish?ceremony="+b.Ceremony, string(body), nil); w.Code != 200 {
+		t.Fatalf("second passkey: %d %s", w.Code, w.Body)
+	}
+	w = e.ceremony("login", "", second)
+	if w.Code != 200 {
+		t.Fatalf("login with the second passkey: %d", w.Code)
+	}
+	cookie, csrf = cookieOf(w)
+	auth = map[string]string{"Cookie": cookie["Cookie"], "X-CSRF-Token": csrf}
+	var keys []struct{ ID string }
+	json.Unmarshal(e.do("GET", "/api/passkeys", "", cookie).Body.Bytes(), &keys)
+	if len(keys) != 2 {
+		t.Fatalf("passkeys: %+v", keys)
+	}
+	w = e.do("DELETE", "/api/passkeys/"+keys[0].ID, "", auth)
+	if w.Code != 200 {
+		t.Fatalf("remove: %d %s", w.Code, w.Body)
+	}
+	if w := e.do("GET", "/api/v1/status", "", cookie); w.Code != 401 {
+		t.Fatalf("old session after removing a key: %d", w.Code)
+	}
+	cookie, csrf = cookieOf(w)
+	if c := e.ceremony("login", "", first); c.Code == 200 {
+		t.Fatal("the removed passkey still signs in")
+	}
+	auth = map[string]string{"Cookie": cookie["Cookie"], "X-CSRF-Token": csrf}
+	if w := e.do("DELETE", "/api/passkeys/"+keys[1].ID, "", auth); w.Code != 400 {
+		t.Fatalf("removing the last passkey: %d", w.Code)
+	}
+}

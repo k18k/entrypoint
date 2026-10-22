@@ -141,8 +141,13 @@ const toDesc = (d: Desc) => ({ ...d, id: b64u.decode(d.id) }) as PublicKeyCreden
 export const passkeysSupported = () => typeof window.PublicKeyCredential === "function" && window.isSecureContext;
 
 /** Adds a passkey with the one-time token from `entrypoint panel register`; signs in on success. */
-export async function registerPasskey(token: string): Promise<Session> {
-  const { ceremony, options: o } = await call<{ ceremony: string; options: any }>("POST", "/register/begin", { token });
+export const registerPasskey = (token: string) => createPasskey("/register/begin", { token });
+
+/** Adds another passkey for the signed-in administrator (other sessions end). */
+export const addPasskey = () => createPasskey("/passkeys/begin");
+
+async function createPasskey(begin: string, body?: unknown): Promise<Session> {
+  const { ceremony, options: o } = await call<{ ceremony: string; options: any }>("POST", begin, body);
   const cred = (await navigator.credentials.create({
     publicKey: {
       ...o,
@@ -199,7 +204,15 @@ export async function logout() {
   csrf = "";
 }
 
+export type Passkey = { id: string; name: string; createdAt: string; lastUsed?: string };
+
+export async function removePasskey(id: string) {
+  const s = await call<Session>("DELETE", `/passkeys/${encodeURIComponent(id)}`);
+  csrf = s.csrf ?? "";
+}
+
 export const api = {
+  passkeys: () => call<Passkey[]>("GET", "/passkeys"),
   status: () => call<Status>("GET", "/v1/status"),
   services: () => call<Service[]>("GET", "/v1/services"),
   addService: (name: string, health: string) => call<ChangeResult>("POST", "/v1/services", { name, health: health || undefined }),

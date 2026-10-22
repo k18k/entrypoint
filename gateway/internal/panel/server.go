@@ -104,6 +104,9 @@ func (s *Server) Handler() http.Handler {
 	m := http.NewServeMux()
 	m.HandleFunc("GET /api/session", s.hSession)
 	m.HandleFunc("POST /api/register/begin", s.hRegisterBegin)
+	m.HandleFunc("GET /api/passkeys", s.hPasskeys)
+	m.HandleFunc("POST /api/passkeys/begin", s.hPasskeyAdd)
+	m.HandleFunc("DELETE /api/passkeys/{id}", s.hPasskeyRemove)
 	m.HandleFunc("POST /api/register/finish", s.hRegisterFinish)
 	m.HandleFunc("POST /api/login/begin", s.hLoginBegin)
 	m.HandleFunc("POST /api/login/finish", s.hLoginFinish)
@@ -292,6 +295,11 @@ func (s *Server) hRegisterBegin(w http.ResponseWriter, r *http.Request) {
 		reply(w, 403, map[string]string{"error": err.Error()})
 		return
 	}
+	s.beginRegistration(w)
+}
+
+// beginRegistration starts adding a passkey (keysMu held); hRegisterFinish completes it.
+func (s *Server) beginRegistration(w http.ResponseWriter) {
 	keys, err := LoadKeys(s.cfg)
 	if err != nil {
 		reply(w, 500, map[string]string{"error": "cannot read passkeys"})
@@ -531,4 +539,77 @@ func (s *Server) hUI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	_, _ = w.Write(idx)
+}
+
+// signedIn checks the session and, for changes, the CSRF token and Origin.
+func (s *Server) signedIn(w http.ResponseWriter, r *http.Request) bool {
+	_, ss := s.current(r)
+	if ss == nil {
+		reply(w, 401, map[string]string{"error": "not logged in"})
+		return false
+	}
+	if r.Method != http.MethodGet && (!s.sameOrigin(r) || !s.csrfOK(r, ss)) {
+		reply(w, 403, map[string]string{"error": "missing or wrong CSRF token"})
+		return false
+	}
+	return true
+}
+
+func (s *Server) hPasskeys(w http.ResponseWriter, r *http.Request) {
+	if !s.signedIn(w, r) {
+		return
+	}
+	keys, err := LoadKeys(s.cfg)
+	if err != nil {
+		reply(w, 500, map[string]string{"error": "cannot read passkeys"})
+		return
+	}
+	type row struct {
+		ID        string     `json:"id"`
+		Name      string     `json:"name"`
+		CreatedAt time.Time  `json:"createdAt"`
+		LastUsed  *time.Time `json:"lastUsed,omitempty"`
+	}
+	out := []row{}
+	for _, k := range keys.Keys {
+		out = append(out, row{k.ID, k.Name, k.CreatedAt, k.LastUsed})
+	}
+	reply(w, 200, out)
+}
+
+// hPasskeyAdd lets a signed-in administrator add another passkey (e.g. a backup security key)
+// without a CLI link; it finishes through /api/register/finish.
+func (s *Server) hPasskeyAdd(w http.ResponseWriter, r *http.Request) {
+	if !s.signedIn(w, r) {
+		return
+	}
+	s.keysMu.Lock()
+	defer s.keysMu.Unlock()
+	s.beginRegistration(w)
+}
+
+// hPasskeyRemove revokes a passkey. The last one stays, so the panel cannot lock itself out.
+// Every session ends; the caller gets a new one.
+func (s *Server) hPasskeyRemove(w http.ResponseWriter, r *http.Request) {
+	if !s.signedIn(w, r) {
+		return
+	}
+	s.keysMu.Lock()
+	defer s.keysMu.Unlock()
+	keys, err := LoadKeys(s.cfg)
+	if err != nil {
+		reply(w, 500, map[string]string{"error": "cannot read passkeys"})
+		return
+	}
+	if len(keys.Keys) <= 1 {
+		reply(w, 400, map[string]string{"error": "this is the only passkey; add another one first"})
+		return
+	}
+	if err := RemoveKey(s.cfg, r.PathValue("id")); err != nil {
+		reply(w, 404, map[string]string{"error": err.Error()})
+		return
+	}
+	keys, _ = LoadKeys(s.cfg)
+	s.log.Info("panel passkey removed", "key", r.PathValue("id"), "ip", clientIP(r))
+	s.startSession(w, keys.Generation)
 }

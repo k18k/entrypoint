@@ -10,6 +10,7 @@ import { Tokens } from "./pages/Tokens";
 import { VPN } from "./pages/VPN";
 import { DNS } from "./pages/DNS";
 import { Revisions } from "./pages/Revisions";
+import { Passkeys } from "./pages/Passkeys";
 
 const pages = [
   { path: "/", label: "Overview", el: Overview },
@@ -19,6 +20,7 @@ const pages = [
   { path: "/tokens", label: "Tokens", el: Tokens },
   { path: "/dns", label: "DNS", el: DNS },
   { path: "/revisions", label: "Revisions", el: Revisions },
+  { path: "/passkeys", label: "Passkeys", el: Passkeys },
 ];
 
 function Brand({ gateway }: { gateway: string }) {
