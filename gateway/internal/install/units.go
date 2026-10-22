@@ -65,12 +65,13 @@ SupplementaryGroups=%[2]s
 ExecStart=%[3]s/entrypoint-panel --config %[4]s
 Restart=always
 RestartSec=1
+ReadWritePaths=%[6]s
 %[5]s
 UMask=0077
 
 [Install]
 WantedBy=entrypoint.target
-`, config.UserPanel, config.UserDaemon, filepath.Join(config.OptDir, "current", "bin"), configPath, hardening)
+`, config.UserPanel, config.UserDaemon, filepath.Join(config.OptDir, "current", "bin"), configPath, hardening, cfg.PanelDir())
 	}
 	return u
 }

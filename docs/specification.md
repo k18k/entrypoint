@@ -291,14 +291,13 @@ Every command that changes the configuration creates a revision and prints its n
 The panel is minimal and has no state of its own. Every operation goes through the entrypointd API, so a panel failure removes only the interface.
 
 - **Scope:** routes and services, tokens (issue, list, revoke), replica and revision status with apply errors, required DNS records and certificate state.
-- **Login:** a single administrator account, password hashed with argon2id, attempt limit per IP address.
+- **Login:** passkeys (WebAuthn) only, for a single administrator: discoverable credentials with user verification required, no passwords. `entrypoint panel register` (root) prints a one-time link valid for 60 seconds whose token is in the URL fragment, so it never reaches the server's logs or a Referer; the server stores only its hash. `entrypoint panel keys` lists the passkeys and `panel keys rm <id>` revokes one; adding or removing a key ends every session. Failed sign-ins and registrations are limited per IP address.
 - **Session:** a cookie with the HttpOnly, Secure and SameSite=Strict attributes.
 - **CSRF:** every state-changing operation requires a CSRF token and a matching Origin header.
 - **Exposure:** the panel is publicly reachable through Caddy on its own domain; only its backend port is private. Available restrictions: an allowlist of IP addresses for the panel domain, or a local mode without a public route, accessed through an SSH tunnel. The installer recommends one of them.
 - **Stack:** a Go backend (`entrypoint-panel`, its own process and system user, on 127.0.0.1:7700, talking to entrypointd through the API socket, so the gateway needs no Node.js runtime) with a React + Vite frontend embedded in the binary. Caddy serves it on `--panel-name` with an ACME certificate; the name is reserved like the VPN's. Revisions made from the panel have the author `panel`.
 - **Apps:** creating an app makes the service, its routes and a token in one step and shows `ENTRYPOINT_CONNECT` once with commands for a Linux machine, the Node.js SDK and Docker Compose. Hosts are bound here, by the administrator, never claimed by a connector, so a leaked token cannot publish another domain.
 - **VPN:** machines with their addresses, removal, and keys for publishing a service (`--expose`), using one from an app (`--forward`) or joining with the Tailscale client.
-- **Password:** generated at install and shown once; `entrypoint panel password` changes it and ends all sessions.
 
 ## 13. Installation and operations
 

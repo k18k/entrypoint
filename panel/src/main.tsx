@@ -1,8 +1,8 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
-import { login, logout, onLoggedOut, session, type Session } from "./api";
-import { ErrorText, usePath } from "./ui";
+import { loginWithPasskey, logout, onLoggedOut, passkeysSupported, registerPasskey, session, type Session } from "./api";
+import { Copy, ErrorText, usePath } from "./ui";
 import { Overview } from "./pages/Overview";
 import { Apps } from "./pages/Apps";
 import { Routes } from "./pages/Routes";
@@ -21,41 +21,110 @@ const pages = [
   { path: "/revisions", label: "Revisions", el: Revisions },
 ];
 
-function Login({ gateway, onDone }: { gateway: string; onDone: (s: Session) => void }) {
-  const [pw, setPw] = useState("");
+function Brand({ gateway }: { gateway: string }) {
+  return (
+    <>
+      <div className="brand">
+        <span className="logo" aria-hidden="true" />
+        Entrypoint
+      </div>
+      <p className="muted">{gateway}</p>
+    </>
+  );
+}
+
+function Login({ s, onDone }: { s: Session; onDone: (s: Session) => void }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   return (
     <main className="login">
-      <form
-        className="card"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setBusy(true);
-          setError("");
-          try {
-            onDone(await login(pw));
-          } catch (err) {
-            setError((err as Error).message);
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <div className="brand">
-          <span className="logo" aria-hidden="true" />
-          Entrypoint
-        </div>
-        <p className="muted">{gateway}</p>
-        <label className="field">
-          <span>Administrator password</span>
-          <input type="password" autoComplete="current-password" autoFocus value={pw} onChange={(e) => setPw(e.target.value)} />
-        </label>
-        <ErrorText>{error}</ErrorText>
-        <button className="primary" disabled={busy || !pw}>
-          {busy ? "Signing in…" : "Sign in"}
-        </button>
-      </form>
+      <div className="card">
+        <Brand gateway={s.gateway} />
+        {!passkeysSupported() ? (
+          <ErrorText>This browser does not support passkeys.</ErrorText>
+        ) : s.registered === false ? (
+          <>
+            <p>No passkey is registered yet. On the gateway run:</p>
+            <Copy text="sudo entrypoint panel register" />
+            <p className="muted small">It prints a one-time link, valid for one minute, that adds your passkey.</p>
+          </>
+        ) : (
+          <>
+            <ErrorText>{error}</ErrorText>
+            <button
+              className="primary"
+              disabled={busy}
+              autoFocus
+              onClick={async () => {
+                setBusy(true);
+                setError("");
+                try {
+                  onDone(await loginWithPasskey());
+                } catch (err) {
+                  setError(err instanceof DOMException && err.name === "NotAllowedError" ? "Sign-in was cancelled or timed out." : (err as Error).message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              {busy ? "Waiting for your passkey…" : "Sign in with a passkey"}
+            </button>
+          </>
+        )}
+      </div>
+    </main>
+  );
+}
+
+// The one-time token of /register#<token>, read once at load and dropped from the address bar.
+const registrationToken = location.pathname === "/register" ? location.hash.slice(1) : "";
+if (registrationToken) history.replaceState(null, "", "/register");
+
+/** /register#<token>: adds a passkey with the one-time link from `entrypoint panel register`. */
+function Register({ gateway, onDone }: { gateway: string; onDone: (s: Session) => void }) {
+  const token = registrationToken;
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <main className="login">
+      <div className="card">
+        <Brand gateway={gateway} />
+        {!token ? (
+          <ErrorText>This link has no registration token. Run sudo entrypoint panel register for a new one.</ErrorText>
+        ) : !passkeysSupported() ? (
+          <ErrorText>This browser does not support passkeys.</ErrorText>
+        ) : (
+          <>
+            <p>
+              Create a passkey for this panel. Save it in your password manager (e.g. Proton Pass, 1Password, iCloud Keychain) or on a security key
+              such as a YubiKey. It is the only way to sign in.
+            </p>
+            <ErrorText>{error}</ErrorText>
+            <button
+              className="primary"
+              disabled={busy}
+              autoFocus
+              onClick={async () => {
+                setBusy(true);
+                setError("");
+                try {
+                  onDone(await registerPasskey(token));
+                } catch (err) {
+                  setError(
+                    err instanceof DOMException && err.name === "NotAllowedError"
+                      ? "Cancelled or timed out. The link worked once; run sudo entrypoint panel register again."
+                      : (err as Error).message,
+                  );
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              {busy ? "Waiting for your passkey…" : "Create passkey"}
+            </button>
+          </>
+        )}
+      </div>
     </main>
   );
 }
@@ -69,7 +138,17 @@ function App() {
     return onLoggedOut(() => setS((x) => ({ authenticated: false, gateway: x?.gateway ?? "" })));
   }, []);
   if (!s) return null;
-  if (!s.authenticated) return <Login gateway={s.gateway} onDone={setS} />;
+  if (path === "/register")
+    return (
+      <Register
+        gateway={s.gateway}
+        onDone={(x) => {
+          setS(x);
+          go("/");
+        }}
+      />
+    );
+  if (!s.authenticated) return <Login s={s} onDone={setS} />;
   const page = pages.find((p) => p.path === path) ?? pages.find((p) => p.path !== "/" && path.startsWith(p.path)) ?? pages[0];
   const Page = page.el;
   return (

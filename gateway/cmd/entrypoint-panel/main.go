@@ -32,9 +32,14 @@ func main() {
 		fmt.Fprintln(os.Stderr, "entrypoint-panel: the panel is not set up (entrypoint install --panel-name)")
 		os.Exit(1)
 	}
+	p, err := panel.New(cfg, panel.UI(), log)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "entrypoint-panel:", err)
+		os.Exit(1)
+	}
 	srv := &http.Server{
 		Addr:              cfg.Panel.Listen,
-		Handler:           panel.New(cfg, panel.UI(), log).Handler(),
+		Handler:           p.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       60 * time.Second,
 		IdleTimeout:       120 * time.Second,

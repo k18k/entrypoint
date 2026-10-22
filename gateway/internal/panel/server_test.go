@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net"
@@ -11,24 +12,21 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/k18k/entrypoint/gateway/internal/config"
 )
 
-func TestPasswordHash(t *testing.T) {
-	h, err := HashPassword("correct horse battery")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ok, _ := VerifyPassword("correct horse battery", h); !ok {
-		t.Fatal("right password rejected")
-	}
-	if ok, _ := VerifyPassword("wrong", h); ok {
-		t.Fatal("wrong password accepted")
-	}
+const origin = "https://panel.example.com"
+
+type env struct {
+	t    *testing.T
+	s    *Server
+	h    http.Handler
+	seen *[]string
 }
 
-func setup(t *testing.T) (*Server, http.Handler, *[]string) {
+func setup(t *testing.T) *env {
 	dir := t.TempDir()
 	cfg := config.Default()
 	cfg.GatewayName = "tunnel.example.com"
@@ -36,8 +34,6 @@ func setup(t *testing.T) (*Server, http.Handler, *[]string) {
 	cfg.DataDir = dir
 	cfg.APISocket = filepath.Join(dir, "api.sock")
 	os.MkdirAll(cfg.PanelDir(), 0o700)
-	h, _ := HashPassword("correct horse battery")
-	os.WriteFile(cfg.PanelPasswordFile(), []byte(h+"\n"), 0o600)
 	// A stand-in for entrypointd that records what reaches it.
 	var seen []string
 	ln, err := net.Listen("unix", cfg.APISocket)
@@ -50,98 +46,174 @@ func setup(t *testing.T) (*Server, http.Handler, *[]string) {
 	})}
 	go api.Serve(ln)
 	t.Cleanup(func() { api.Close() })
-	s := New(cfg, fstest.MapFS{"index.html": {Data: []byte("<html>panel</html>")}}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	return s, s.Handler(), &seen
+	s, err := New(cfg, fstest.MapFS{"index.html": {Data: []byte("<html>panel</html>")}}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &env{t, s, s.Handler(), &seen}
 }
 
-func do(h http.Handler, method, path, body string, hdr map[string]string) *httptest.ResponseRecorder {
+func (e *env) do(method, path, body string, hdr map[string]string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
 	r.RemoteAddr = "127.0.0.1:5555"
 	r.Header.Set("X-Forwarded-For", "203.0.113.7")
+	r.Header.Set("Origin", origin)
 	for k, v := range hdr {
 		r.Header.Set(k, v)
 	}
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, r)
+	e.h.ServeHTTP(w, r)
 	return w
 }
 
-func TestLoginSessionAndCSRF(t *testing.T) {
-	_, h, seen := setup(t)
-	origin := map[string]string{"Origin": "https://panel.example.com"}
+// ceremony runs begin and finish with the authenticator; it returns the finish response.
+func (e *env) ceremony(kind string, begin string, k *softKey) *httptest.ResponseRecorder {
+	e.t.Helper()
+	w := e.do("POST", "/api/"+kind+"/begin", begin, nil)
+	if w.Code != 200 {
+		return w
+	}
+	var b struct {
+		Ceremony string          `json:"ceremony"`
+		Options  json.RawMessage `json:"options"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &b)
+	var body []byte
+	var err error
+	if kind == "register" {
+		body, err = k.Create(b.Options)
+	} else {
+		body, err = k.Get(b.Options)
+	}
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return e.do("POST", "/api/"+kind+"/finish?ceremony="+b.Ceremony, string(body), nil)
+}
 
-	if w := do(h, "GET", "/api/v1/status", "", nil); w.Code != 401 {
+func (e *env) register(k *softKey) *httptest.ResponseRecorder {
+	tok, _, err := NewRegistration(e.s.cfg)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return e.ceremony("register", `{"token":"`+tok+`"}`, k)
+}
+
+func cookieOf(w *httptest.ResponseRecorder) (map[string]string, string) {
+	c := w.Result().Cookies()[0]
+	var out struct {
+		CSRF string `json:"csrf"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &out)
+	return map[string]string{"Cookie": c.Name + "=" + c.Value}, out.CSRF
+}
+
+func TestPasskeyRegistrationAndLogin(t *testing.T) {
+	e := setup(t)
+	key := &softKey{Origin: origin}
+
+	if w := e.do("GET", "/api/v1/status", "", nil); w.Code != 401 {
 		t.Fatalf("API without a session: %d", w.Code)
 	}
-	if w := do(h, "POST", "/api/login", `{"password":"correct horse battery"}`, map[string]string{"Origin": "https://evil.example"}); w.Code != 403 {
-		t.Fatalf("login from a foreign origin: %d", w.Code)
+	// No passkey yet: sign-in cannot work.
+	if w := e.ceremony("login", "", key); w.Code == 200 {
+		t.Fatal("login without a registered passkey")
 	}
-	if w := do(h, "POST", "/api/login", `{"password":"nope"}`, origin); w.Code != 401 {
-		t.Fatalf("wrong password: %d", w.Code)
+	// A wrong or reused registration token is refused.
+	if w := e.do("POST", "/api/register/begin", `{"token":"guess"}`, nil); w.Code != 403 {
+		t.Fatalf("registration without a link: %d", w.Code)
 	}
-	w := do(h, "POST", "/api/login", `{"password":"correct horse battery"}`, origin)
+	w := e.register(key)
 	if w.Code != 200 {
-		t.Fatalf("login: %d %s", w.Code, w.Body)
+		t.Fatalf("registration: %d %s", w.Code, w.Body)
 	}
 	c := w.Result().Cookies()[0]
 	if c.Name != "__Host-ep_panel" || !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteStrictMode {
 		t.Fatalf("cookie attributes: %+v", c)
 	}
-	csrf := strings.Split(strings.Split(w.Body.String(), `"csrf":"`)[1], `"`)[0]
-	cookie := map[string]string{"Cookie": c.Name + "=" + c.Value}
+	keys, _ := LoadKeys(e.s.cfg)
+	if len(keys.Keys) != 1 || keys.Generation != 1 {
+		t.Fatalf("stored keys: %+v", keys)
+	}
+	if fi, _ := os.Stat(keysPath(e.s.cfg)); fi.Mode().Perm() != 0o600 {
+		t.Fatalf("passkeys file mode %v", fi.Mode())
+	}
 
-	if w := do(h, "GET", "/api/v1/status", "", cookie); w.Code != 200 {
+	// Sign in with the passkey, then use the API.
+	w = e.ceremony("login", "", key)
+	if w.Code != 200 {
+		t.Fatalf("login: %d %s", w.Code, w.Body)
+	}
+	cookie, csrf := cookieOf(w)
+	if w := e.do("GET", "/api/v1/status", "", cookie); w.Code != 200 {
 		t.Fatalf("API with a session: %d", w.Code)
 	}
-	noCSRF := map[string]string{"Cookie": cookie["Cookie"], "Origin": origin["Origin"]}
-	if w := do(h, "POST", "/api/v1/services", `{}`, noCSRF); w.Code != 403 {
+	if w := e.do("POST", "/api/v1/services", `{}`, cookie); w.Code != 403 {
 		t.Fatalf("change without CSRF: %d", w.Code)
 	}
-	badOrigin := map[string]string{"Cookie": cookie["Cookie"], "Origin": "https://evil.example", "X-CSRF-Token": csrf}
-	if w := do(h, "POST", "/api/v1/services", `{}`, badOrigin); w.Code != 403 {
+	bad := map[string]string{"Cookie": cookie["Cookie"], "X-CSRF-Token": csrf, "Origin": "https://evil.example"}
+	if w := e.do("POST", "/api/v1/services", `{}`, bad); w.Code != 403 {
 		t.Fatalf("change from a foreign origin: %d", w.Code)
 	}
-	ok := map[string]string{"Cookie": cookie["Cookie"], "Origin": origin["Origin"], "X-CSRF-Token": csrf}
-	if w := do(h, "POST", "/api/v1/services", `{}`, ok); w.Code != 200 {
+	ok := map[string]string{"Cookie": cookie["Cookie"], "X-CSRF-Token": csrf}
+	if w := e.do("POST", "/api/v1/services", `{}`, ok); w.Code != 200 {
 		t.Fatalf("change with CSRF: %d", w.Code)
 	}
-	for _, s := range *seen {
+	for _, s := range *e.seen {
 		if strings.Contains(s, "cookie=__Host") {
 			t.Fatalf("session cookie forwarded to entrypointd: %s", s)
 		}
 	}
-	if got := strings.Join(*seen, ","); !strings.Contains(got, "GET /v1/status") || !strings.Contains(got, "POST /v1/services") {
-		t.Fatalf("proxied: %s", got)
+	keys, _ = LoadKeys(e.s.cfg)
+	if keys.Keys[0].LastUsed == nil || keys.Keys[0].Credential.Authenticator.SignCount == 0 {
+		t.Fatalf("sign-in not recorded: %+v", keys.Keys[0])
 	}
-	// Logout ends the session.
-	do(h, "POST", "/api/logout", "", ok)
-	if w := do(h, "GET", "/api/v1/status", "", cookie); w.Code != 401 {
-		t.Fatalf("API after logout: %d", w.Code)
+
+	// A passkey that was never registered is refused.
+	if w := e.ceremony("login", "", &softKey{Origin: origin}); w.Code == 200 {
+		t.Fatal("unregistered passkey accepted")
 	}
-	// The SPA gets index.html for client-side routes.
-	if w := do(h, "GET", "/vpn", "", nil); w.Code != 200 || !strings.Contains(w.Body.String(), "panel") || w.Header().Get("Content-Security-Policy") == "" {
-		t.Fatalf("UI: %d %v", w.Code, w.Header())
+	// Removing the key ends the session.
+	if err := RemoveKey(e.s.cfg, keys.Keys[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if w := e.do("GET", "/api/v1/status", "", cookie); w.Code != 401 {
+		t.Fatalf("session survived removing the key: %d", w.Code)
+	}
+	// The SPA gets index.html for client-side routes, with a CSP.
+	if w := e.do("GET", "/register", "", nil); w.Code != 200 || w.Header().Get("Content-Security-Policy") == "" {
+		t.Fatalf("UI: %d", w.Code)
+	}
+}
+
+func TestRegistrationLinkIsOneTimeAndExpires(t *testing.T) {
+	e := setup(t)
+	tok, _, _ := NewRegistration(e.s.cfg)
+	if w := e.ceremony("register", `{"token":"`+tok+`"}`, &softKey{Origin: origin}); w.Code != 200 {
+		t.Fatalf("first use: %d %s", w.Code, w.Body)
+	}
+	if w := e.do("POST", "/api/register/begin", `{"token":"`+tok+`"}`, nil); w.Code != 403 {
+		t.Fatalf("second use: %d", w.Code)
+	}
+	tok, _, _ = NewRegistration(e.s.cfg)
+	e.s.now = func() time.Time { return time.Now().Add(RegistrationTTL + time.Second) }
+	if w := e.do("POST", "/api/register/begin", `{"token":"`+tok+`"}`, nil); w.Code != 403 || !strings.Contains(w.Body.String(), "expired") {
+		t.Fatalf("expired link: %d %s", w.Code, w.Body)
+	}
+	// A key made for another site (wrong origin in clientData) is rejected.
+	e.s.now = time.Now
+	if w := e.register(&softKey{Origin: "https://evil.example"}); w.Code == 200 {
+		t.Fatal("passkey for a foreign origin accepted")
 	}
 }
 
 func TestLoginRateLimit(t *testing.T) {
-	_, h, _ := setup(t)
-	origin := map[string]string{"Origin": "https://panel.example.com"}
+	e := setup(t)
+	e.register(&softKey{Origin: origin})
 	for i := 0; i < maxFails; i++ {
-		do(h, "POST", "/api/login", `{"password":"nope"}`, origin)
+		e.ceremony("login", "", &softKey{Origin: origin})
 	}
-	if w := do(h, "POST", "/api/login", `{"password":"correct horse battery"}`, origin); w.Code != 429 {
+	if w := e.do("POST", "/api/login/begin", "", nil); w.Code != 429 {
 		t.Fatalf("after %d failures: %d", maxFails, w.Code)
-	}
-}
-
-func TestPasswordChangeEndsSessions(t *testing.T) {
-	s, h, _ := setup(t)
-	w := do(h, "POST", "/api/login", `{"password":"correct horse battery"}`, map[string]string{"Origin": "https://panel.example.com"})
-	c := w.Result().Cookies()[0]
-	nh, _ := HashPassword("another long password")
-	os.WriteFile(s.cfg.PanelPasswordFile(), []byte(nh), 0o600)
-	if w := do(h, "GET", "/api/v1/status", "", map[string]string{"Cookie": c.Name + "=" + c.Value}); w.Code != 401 {
-		t.Fatalf("session survived a password change: %d", w.Code)
 	}
 }

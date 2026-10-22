@@ -220,7 +220,7 @@ func Install(o Options) error {
 			dir{cfg.TailscaleDir(), "", "", 0o700})
 	}
 	if cfg.Panel.Enabled() {
-		dirs = append(dirs, dir{cfg.PanelDir(), "", config.UserPanel, 0o750})
+		dirs = append(dirs, dir{cfg.PanelDir(), config.UserPanel, config.UserPanel, 0o700})
 	}
 	for _, d := range dirs {
 		if err := ensureDir(d); err != nil {
@@ -234,7 +234,7 @@ func Install(o Options) error {
 		}
 	}
 	if cfg.Panel.Enabled() {
-		if err := run("chown", "-R", "root:"+config.UserPanel, cfg.PanelDir()); err != nil {
+		if err := run("chown", "-R", config.UserPanel+":"+config.UserPanel, cfg.PanelDir()); err != nil {
 			return err
 		}
 	}
@@ -325,18 +325,6 @@ func Install(o Options) error {
 		}
 	}
 
-	var panelPassword string
-	if cfg.Panel.Enabled() && !exists(cfg.PanelPasswordFile()) {
-		pw, err := panel.RandomPassword()
-		if err != nil {
-			return err
-		}
-		if err := SetPanelPassword(cfg, pw); err != nil {
-			return err
-		}
-		panelPassword = pw
-	}
-
 	if err := writeUnits(cfg, o.ConfigPath); err != nil {
 		return err
 	}
@@ -372,23 +360,12 @@ func Install(o Options) error {
 			return err
 		}
 	}
-	if panelPassword != "" {
-		// Shown once, like a tunnel token.
-		fmt.Fprintf(out, "\nPanel: https://%s\nInitial password (shown only now): %s\nChange it with: sudo entrypoint panel password\n", cfg.Panel.Name, panelPassword)
+	if cfg.Panel.Enabled() {
+		if keys, err := panel.LoadKeys(cfg); err == nil && len(keys.Keys) == 0 {
+			fmt.Fprintf(out, "\nPanel: https://%s\nSign-in is with passkeys only. Register yours: sudo entrypoint panel register\n", cfg.Panel.Name)
+		}
 	}
 	return nil
-}
-
-// SetPanelPassword stores the argon2id hash of the panel administrator's password.
-func SetPanelPassword(cfg config.Config, pw string) error {
-	if len(pw) < panel.MinPasswordLength {
-		return fmt.Errorf("the password needs at least %d characters", panel.MinPasswordLength)
-	}
-	h, err := panel.HashPassword(pw)
-	if err != nil {
-		return err
-	}
-	return writeOwned(cfg.PanelPasswordFile(), []byte(h+"\n"), 0o640, "", config.UserPanel)
 }
 
 // hostFree rejects a name for the gateway's own sites that existing routes already use.

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/cookiejar"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -55,6 +56,29 @@ func (p *panelClient) do(method, path string, body any, hdr map[string]string) (
 	return resp.StatusCode, out
 }
 
+// ceremony runs a WebAuthn registration or sign-in with the software passkey, as the frontend does.
+func (p *panelClient) ceremony(kind string, begin any, key *h.Passkey) (int, map[string]any) {
+	p.t.Helper()
+	code, out := p.do("POST", "/api/"+kind+"/begin", begin, nil)
+	if code != 200 {
+		return code, out
+	}
+	opts, _ := json.Marshal(out["options"])
+	var body []byte
+	var err error
+	if kind == "register" {
+		body, err = key.Create(opts)
+	} else {
+		body, err = key.Get(opts)
+	}
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	return p.do("POST", "/api/"+kind+"/finish?ceremony="+out["ceremony"].(string), json.RawMessage(body), nil)
+}
+
+var registerLink = regexp.MustCompile(`https://` + regexp.QuoteMeta(panelName) + `/register#(\S+)`)
+
 func newPanelClient(e *h.Env) *panelClient {
 	jar, _ := cookiejar.New(nil)
 	c := e.HTTPClient()
@@ -62,9 +86,9 @@ func newPanelClient(e *h.Env) *panelClient {
 	return &panelClient{t: e.T, c: c}
 }
 
-// Login, cookie attributes, CSRF and Origin checks, then the whole app flow from the panel:
-// create an app with its host, connect a replica with the issued bundle, issue a VPN key,
-// revoke the token; finally the per-IP login limit.
+// Passkey registration with a one-time CLI link, sign-in, cookie attributes, CSRF and Origin
+// checks, then the whole app flow from the panel: create an app with its host, connect a replica
+// with the issued bundle, issue a VPN key, revoke the token; finally key removal and the per-IP limit.
 func TestPanel_LoginAppFlowAndProtection(t *testing.T) {
 	e := h.New(t)
 	e.StopAllApps()
@@ -72,10 +96,14 @@ func TestPanel_LoginAppFlowAndProtection(t *testing.T) {
 	e.SetDNS(map[string]string{panelName: h.GatewayIP, vpnName: h.GatewayIP, "web.ep.test": h.GatewayIP})
 	e.ResetGateway(h.Gateway)
 	e.Install(h.InstallOptions{Extra: []string{"--panel-name", panelName, "--vpn-name", vpnName}})
-	pw := "panel-password-e2e-123"
-	e.Secrets = append(e.Secrets, pw)
-	e.MustSh(h.Gateway, "echo "+pw+" | entrypoint panel password")
 	e.WaitHTTPS("https://"+panelName+"/api/session", 200)
+	m := registerLink.FindStringSubmatch(e.MustEP("panel", "register"))
+	if m == nil {
+		t.Fatal("panel register: no link")
+	}
+	link := m[1]
+	e.Secrets = append(e.Secrets, link)
+	key := &h.Passkey{Origin: "https://" + panelName}
 
 	p := newPanelClient(e)
 	// The frontend with its security headers.
@@ -88,9 +116,14 @@ func TestPanel_LoginAppFlowAndProtection(t *testing.T) {
 	csp := resp.Header.Get("Content-Security-Policy")
 
 	noSession, _ := p.do("GET", "/api/v1/status", nil, nil)
-	foreign, _ := p.do("POST", "/api/login", map[string]string{"password": pw}, map[string]string{"Origin": "https://evil.example"})
-	wrong, _ := p.do("POST", "/api/login", map[string]string{"password": "wrong-password"}, nil)
-	code, login := p.do("POST", "/api/login", map[string]string{"password": pw}, nil)
+	foreign, _ := p.do("POST", "/api/register/begin", map[string]string{"token": link}, map[string]string{"Origin": "https://evil.example"})
+	wrong, _ := p.ceremony("login", nil, &h.Passkey{Origin: "https://" + panelName})
+	if c, out := p.ceremony("register", map[string]string{"token": link}, key); c != 200 {
+		t.Fatalf("registration: %d %v", c, out)
+	}
+	reused, _ := p.do("POST", "/api/register/begin", map[string]string{"token": link}, nil)
+	p = newPanelClient(e) // a fresh browser signs in with the passkey
+	code, login := p.ceremony("login", nil, key)
 	if code != 200 {
 		t.Fatalf("login: %d %v", code, login)
 	}
@@ -119,8 +152,8 @@ func TestPanel_LoginAppFlowAndProtection(t *testing.T) {
 	e.StartApp(h.AppOptions{Container: h.ClientA, Connect: connect, Service: "web", Replica: "a", Wait: true})
 	e.WaitHTTPS("https://web.ep.test/health", 200)
 	_, revs := p.do("GET", "/api/v1/revisions", nil, nil)
-	_, key := p.do("POST", "/api/v1/vpn/keys", map[string]any{"reusable": false, "expiration": "1h"}, nil)
-	bundle, _ := key["bundle"].(string)
+	_, vpnKey := p.do("POST", "/api/v1/vpn/keys", map[string]any{"reusable": false, "expiration": "1h"}, nil)
+	bundle, _ := vpnKey["bundle"].(string)
 	revokeCode, _ := p.do("POST", "/api/v1/tokens/"+tokenID+"/revoke", nil, nil)
 	var after int
 	e.Eventually(30*time.Second, time.Second, "replica gone after revocation", func() error {
@@ -134,12 +167,19 @@ func TestPanel_LoginAppFlowAndProtection(t *testing.T) {
 	logoutCode, _ := p.do("POST", "/api/logout", nil, nil)
 	afterLogout, _ := p.do("GET", "/api/v1/status", nil, nil)
 
-	// Per-IP limit: 10 failures, then even the right password is refused.
+	// Removing the passkey with the CLI ends sessions.
+	p.ceremony("login", nil, key)
+	keyList := e.MustEP("panel", "keys")
+	keyID := strings.Fields(strings.Split(keyList, "\n")[1])[0]
+	e.MustEP("panel", "keys", "rm", keyID)
+	afterRemove, _ := p.do("GET", "/api/v1/status", nil, nil)
+
+	// Per-IP limit: 10 failures (unknown passkeys), then sign-in is refused.
 	q := newPanelClient(e)
 	for i := 0; i < 10; i++ {
-		q.do("POST", "/api/login", map[string]string{"password": "wrong-password"}, nil)
+		q.ceremony("login", nil, &h.Passkey{Origin: "https://" + panelName})
 	}
-	limited, _ := q.do("POST", "/api/login", map[string]string{"password": pw}, nil)
+	limited, _ := q.do("POST", "/api/login/begin", nil, nil)
 
 	// The backend is not reachable from outside, only through Caddy.
 	_, directErr := e.Sh(h.Attacker, "curl -s --max-time 3 http://"+h.GatewayIP+":7700/api/session")
@@ -148,19 +188,19 @@ func TestPanel_LoginAppFlowAndProtection(t *testing.T) {
 	for _, c := range cookies {
 		cookieDesc += c.Name + " "
 	}
-	result(t, "UI %d bytes, CSP %q; no session %d, foreign origin %d, wrong password %d, login %d (cookie %s); status %d, change without CSRF %d; app created, replica served; VPN bundle issued: %v; revoke %d -> web %d; revisions by panel: %v; logout %d -> %d; 11th login from one IP %d; backend from outside: err=%v",
-		len(page), csp, noSession, foreign, wrong, code, strings.TrimSpace(cookieDesc), statusCode, noCSRF, strings.HasPrefix(bundle, "epv1."), revokeCode, after,
-		strings.Contains(author, "panel"), logoutCode, afterLogout, limited, directErr != nil)
+	result(t, "UI %d bytes, CSP %q; no session %d, registration from a foreign origin %d, unregistered passkey %d, link reused %d, passkey sign-in %d (cookie %s); status %d, change without CSRF %d; app created, replica served; VPN bundle issued: %v; revoke %d -> web %d; revisions by panel: %v; logout %d -> %d; key removed -> %d; 11th sign-in from one IP %d; backend from outside: err=%v",
+		len(page), csp, noSession, foreign, wrong, reused, code, strings.TrimSpace(cookieDesc), statusCode, noCSRF, strings.HasPrefix(bundle, "epv1."), revokeCode, after,
+		strings.Contains(author, "panel"), logoutCode, afterLogout, afterRemove, limited, directErr != nil)
 	if !strings.Contains(string(page), "<div id=\"root\">") || !strings.Contains(csp, "frame-ancestors 'none'") {
 		t.Fatal("no frontend or no CSP")
 	}
-	if noSession != 401 || foreign != 403 || wrong != 401 || statusCode != 200 || noCSRF != 403 {
+	if noSession != 401 || foreign != 403 || wrong != 401 || reused != 403 || statusCode != 200 || noCSRF != 403 {
 		t.Fatal("session or CSRF protection failed")
 	}
 	if !strings.HasPrefix(bundle, "epv1.") || revokeCode != 200 || after == 200 || !strings.Contains(author, "panel") {
 		t.Fatalf("panel actions: revisions %v", revs)
 	}
-	if afterLogout != 401 || limited != 429 || directErr == nil {
+	if afterLogout != 401 || afterRemove != 401 || limited != 429 || directErr == nil {
 		t.Fatal("logout, login limit or backend exposure")
 	}
 }

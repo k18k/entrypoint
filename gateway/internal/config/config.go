@@ -207,9 +207,6 @@ func (c Config) HeadscaleDir() string        { return filepath.Join(c.DataDir, "
 func (c Config) HeadscaleConfig() string { return filepath.Join(EtcDir, "headscale.yaml") }
 func (c Config) TailscaleDir() string    { return filepath.Join(c.DataDir, "tailscale") }
 func (c Config) PanelDir() string        { return filepath.Join(c.DataDir, "panel") }
-func (c Config) PanelPasswordFile() string {
-	return filepath.Join(c.DataDir, "panel", "admin.hash")
-}
 
 // VPNMetrics is Headscale's metrics address, the port after VPN.Listen.
 func (c Config) VPNMetrics() string {

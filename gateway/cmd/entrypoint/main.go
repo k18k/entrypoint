@@ -35,7 +35,8 @@ Usage:
   entrypoint vpn key [--reusable] [--expiration <duration>] [--bundle]
   entrypoint vpn nodes [--json]
   entrypoint vpn rm <id>
-  entrypoint panel password
+  entrypoint panel register
+  entrypoint panel keys [rm <id>]
   entrypoint ca status | entrypoint ca rotate start|switch|finish
   entrypoint revision list | entrypoint revision show <n>
   entrypoint backup [-o <file>]
@@ -92,7 +93,10 @@ func dispatch(cmd string, args []string) error {
 	case "vpn":
 		return sub(args, map[string]func([]string) error{"key": cmdVPNKey, "nodes": cmdVPNNodes, "rm": cmdVPNRemove})
 	case "panel":
-		return sub(args, map[string]func([]string) error{"password": cmdPanelPassword})
+		if len(args) > 0 && args[0] == "--register" {
+			args[0] = "register"
+		}
+		return sub(args, map[string]func([]string) error{"register": cmdPanelRegister, "keys": cmdPanelKeys})
 	case "dns":
 		return sub(args, map[string]func([]string) error{"check": cmdDNSCheck})
 	case "ca":

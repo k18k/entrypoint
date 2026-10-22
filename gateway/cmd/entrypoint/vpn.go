@@ -1,8 +1,6 @@
 package main
 
 import (
-	"bufio"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -11,10 +9,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"golang.org/x/term"
-
 	"github.com/k18k/entrypoint/gateway/internal/api"
-	"github.com/k18k/entrypoint/gateway/internal/install"
 )
 
 func cmdVPNKey(args []string) error {
@@ -111,46 +106,5 @@ func cmdVPNRemove(args []string) error {
 		return err
 	}
 	fmt.Printf("Removed node %s from the VPN.\n", pos[0])
-	return nil
-}
-
-// cmdPanelPassword sets the panel administrator's password (from the terminal or standard input).
-func cmdPanelPassword(args []string) error {
-	fs := flag.NewFlagSet("panel password", flag.ContinueOnError)
-	if _, err := parse(fs, args); err != nil {
-		return err
-	}
-	cfg, err := loadConfig()
-	if err != nil {
-		return err
-	}
-	if !cfg.Panel.Enabled() {
-		return exitError{1, "the panel is not set up; reinstall with: sudo entrypoint install --panel-name panel.example.com"}
-	}
-	var pw string
-	if term.IsTerminal(int(os.Stdin.Fd())) {
-		fmt.Fprint(os.Stderr, "New panel password: ")
-		a, err := term.ReadPassword(int(os.Stdin.Fd()))
-		fmt.Fprint(os.Stderr, "\nRepeat it: ")
-		b, err2 := term.ReadPassword(int(os.Stdin.Fd()))
-		fmt.Fprintln(os.Stderr)
-		if err != nil || err2 != nil {
-			return errors.Join(err, err2)
-		}
-		if string(a) != string(b) {
-			return exitError{1, "the passwords differ"}
-		}
-		pw = string(a)
-	} else {
-		line, err := bufio.NewReader(os.Stdin).ReadString('\n')
-		if err != nil && line == "" {
-			return exitError{1, "pass the new password on standard input"}
-		}
-		pw = strings.TrimRight(line, "\r\n")
-	}
-	if err := install.SetPanelPassword(cfg, pw); err != nil {
-		return err
-	}
-	fmt.Println("Panel password changed; existing sessions are signed out.")
 	return nil
 }

@@ -64,7 +64,7 @@ export type ChangeResult = {
   token?: { id: string; service: string; connect: string };
 };
 
-export type Session = { authenticated: boolean; csrf?: string; gateway: string };
+export type Session = { authenticated: boolean; registered?: boolean; csrf?: string; gateway: string };
 
 let csrf = "";
 const listeners = new Set<() => void>();
@@ -117,8 +117,78 @@ export async function session(): Promise<Session> {
   return s;
 }
 
-export async function login(password: string): Promise<Session> {
-  const s = await call<Session>("POST", "/login", { password });
+// WebAuthn: the server sends options with base64url strings; the browser API wants ArrayBuffers.
+const b64u = {
+  decode(s: string): ArrayBuffer {
+    const b = atob(s.replace(/-/g, "+").replace(/_/g, "/"));
+    const out = new Uint8Array(b.length);
+    for (let i = 0; i < b.length; i++) out[i] = b.charCodeAt(i);
+    return out.buffer;
+  },
+  encode(buf: ArrayBuffer | null): string | undefined {
+    if (!buf) return undefined;
+    let s = "";
+    for (const c of new Uint8Array(buf)) s += String.fromCharCode(c);
+    return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  },
+};
+
+type Desc = { id: string; type: string; transports?: string[] };
+const toDesc = (d: Desc) => ({ ...d, id: b64u.decode(d.id) }) as PublicKeyCredentialDescriptor;
+
+/** Whether this browser can use passkeys at all. */
+export const passkeysSupported = () => typeof window.PublicKeyCredential === "function" && window.isSecureContext;
+
+/** Adds a passkey with the one-time token from `entrypoint panel register`; signs in on success. */
+export async function registerPasskey(token: string): Promise<Session> {
+  const { ceremony, options: o } = await call<{ ceremony: string; options: any }>("POST", "/register/begin", { token });
+  const cred = (await navigator.credentials.create({
+    publicKey: {
+      ...o,
+      challenge: b64u.decode(o.challenge),
+      user: { ...o.user, id: b64u.decode(o.user.id) },
+      excludeCredentials: (o.excludeCredentials ?? []).map(toDesc),
+    },
+  })) as PublicKeyCredential | null;
+  if (!cred) throw new Error("no passkey was created");
+  const r = cred.response as AuthenticatorAttestationResponse;
+  const s = await call<Session>(`POST`, `/register/finish?ceremony=${encodeURIComponent(ceremony)}`, {
+    id: cred.id,
+    rawId: b64u.encode(cred.rawId),
+    type: cred.type,
+    authenticatorAttachment: cred.authenticatorAttachment ?? undefined,
+    clientExtensionResults: cred.getClientExtensionResults(),
+    response: {
+      clientDataJSON: b64u.encode(r.clientDataJSON),
+      attestationObject: b64u.encode(r.attestationObject),
+      transports: r.getTransports?.() ?? [],
+    },
+  });
+  csrf = s.csrf ?? "";
+  return s;
+}
+
+/** Signs in with any passkey registered for this panel. */
+export async function loginWithPasskey(): Promise<Session> {
+  const { ceremony, options: o } = await call<{ ceremony: string; options: any }>("POST", "/login/begin");
+  const cred = (await navigator.credentials.get({
+    publicKey: { ...o, challenge: b64u.decode(o.challenge), allowCredentials: (o.allowCredentials ?? []).map(toDesc) },
+  })) as PublicKeyCredential | null;
+  if (!cred) throw new Error("no passkey was chosen");
+  const r = cred.response as AuthenticatorAssertionResponse;
+  const s = await call<Session>("POST", `/login/finish?ceremony=${encodeURIComponent(ceremony)}`, {
+    id: cred.id,
+    rawId: b64u.encode(cred.rawId),
+    type: cred.type,
+    authenticatorAttachment: cred.authenticatorAttachment ?? undefined,
+    clientExtensionResults: cred.getClientExtensionResults(),
+    response: {
+      clientDataJSON: b64u.encode(r.clientDataJSON),
+      authenticatorData: b64u.encode(r.authenticatorData),
+      signature: b64u.encode(r.signature),
+      userHandle: b64u.encode(r.userHandle),
+    },
+  });
   csrf = s.csrf ?? "";
   return s;
 }
