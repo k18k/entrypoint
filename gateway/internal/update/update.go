@@ -173,6 +173,8 @@ func endMaintenance(cfg config.Config, err error) error {
 // applied before anything accepts logins again.
 func rollback(ctx context.Context, cfg config.Config, o Options, oldTarget, backupDB string) error {
 	_ = systemctl("stop", "entrypointd.service", "entrypoint-frps.service")
+	// A crash-looping new version may have hit systemd's start limit, which would refuse the restart.
+	_ = systemctl("reset-failed")
 	if err := switchCurrent(filepath.Join(config.OptDir, "current"), oldTarget); err != nil {
 		return err
 	}
