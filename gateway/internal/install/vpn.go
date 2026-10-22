@@ -163,7 +163,7 @@ func PreAuthKey(cfg config.Config, expiration string, reusable bool) (string, er
 // It logs in over loopback, so it doesn't wait for the control server's certificate.
 func joinVPN(cfg config.Config, out io.Writer) error {
 	var err error
-	deadline := time.Now().Add(60 * time.Second)
+	deadline := time.Now().Add(120 * time.Second)
 	for time.Now().Before(deadline) {
 		var st []byte
 		if st, err = Tailscale("status", "--json"); err == nil {
@@ -178,7 +178,8 @@ func joinVPN(cfg config.Config, out io.Writer) error {
 		time.Sleep(500 * time.Millisecond)
 	}
 	if err != nil {
-		return fmt.Errorf("VPN: %w", err)
+		journal, _ := exec.Command("journalctl", "-u", "entrypoint-headscale", "-n", "15", "--no-pager").CombinedOutput()
+		return fmt.Errorf("VPN: %w\nheadscale log:\n%s", err, journal)
 	}
 	key, err := PreAuthKey(cfg, "10m", false)
 	if err != nil {

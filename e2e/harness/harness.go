@@ -557,7 +557,7 @@ func (e *Env) collect(kind string) {
 		if !running[gw] {
 			continue
 		}
-		for _, u := range []string{"entrypointd", "entrypoint-caddy", "entrypoint-frps"} {
+		for _, u := range []string{"entrypointd", "entrypoint-caddy", "entrypoint-frps", "entrypoint-headscale", "entrypoint-tailscaled", "entrypoint-panel"} {
 			out, _ := e.Exec(gw, "journalctl", "-u", u+".service", "--no-pager", "-o", "short-iso", "--since", "@"+fmt.Sprint(e.start.Unix()))
 			_ = os.WriteFile(filepath.Join(dir, gw+"-"+u+".journal"), []byte(out), 0o644)
 		}
