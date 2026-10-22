@@ -68,4 +68,4 @@ mv -T "$OPT/current.new" "$OPT/current"
 ln -sfn "$OPT/current/bin/entrypoint" /usr/local/bin/entrypoint
 
 echo "Installed Entrypoint $VERSION in $DEST."
-echo "Dalej: sudo entrypoint install --gateway-name tunnel.example.com --email admin@example.com"
+echo "Next: sudo entrypoint install --gateway-name tunnel.example.com --email admin@example.com"
