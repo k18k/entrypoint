@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Downloads the pinned Caddy and frp binaries from versions.json, verifies SHA256
+"""Downloads the pinned Caddy, frp, Headscale and Tailscale binaries from versions.json, verifies SHA256
 and unpacks them into dist/deps/<os>_<arch>/.
 
 Usage: scripts/fetch-deps.py [platform ...]   (default: linux_amd64)
@@ -18,12 +18,14 @@ CACHE = os.path.join(ROOT, "dist", "cache")
 DEPS = os.path.join(ROOT, "dist", "deps")
 
 # Which files to extract from each component's archive.
-WANTED = {"caddy": ["caddy"], "frp": ["frps", "frpc"]}
+WANTED = {"caddy": ["caddy"], "frp": ["frps", "frpc"], "headscale": ["headscale"], "tailscale": ["tailscale", "tailscaled"]}
+# Only needed on the gateway (Linux).
+GATEWAY_ONLY = {"caddy", "headscale", "tailscale"}
 
 
 def fetch(url, sha256):
     # Only official release downloads over HTTPS; integrity is checked by SHA256 below.
-    if not url.startswith("https://github.com/"):
+    if not url.startswith(("https://github.com/", "https://pkgs.tailscale.com/stable/")):
         sys.exit(f"download URL not allowed: {url}")
     os.makedirs(CACHE, exist_ok=True)
     path = os.path.join(CACHE, url.rsplit("/", 1)[1])
@@ -45,7 +47,14 @@ def fetch(url, sha256):
 def extract(data, name, wanted, dest):
     os.makedirs(dest, exist_ok=True)
     found = set()
-    if name.endswith(".zip"):
+    if not name.endswith((".zip", ".tar.gz", ".tgz")):
+        # A bare binary (Headscale).
+        out = os.path.join(dest, wanted[0])
+        with open(out, "wb") as f:
+            f.write(data)
+        os.chmod(out, 0o755)
+        found.add(wanted[0])
+    elif name.endswith(".zip"):
         with zipfile.ZipFile(io.BytesIO(data)) as z:
             for info in z.infolist():
                 base = os.path.basename(info.filename)
@@ -78,8 +87,8 @@ def main():
         for comp, wanted in WANTED.items():
             asset = versions[comp]["assets"].get(plat)
             if asset is None:
-                if comp == "caddy" and not plat.startswith("linux"):
-                    continue  # Caddy is only needed on the gateway (Linux)
+                if comp in GATEWAY_ONLY and not plat.startswith("linux"):
+                    continue
                 sys.exit(f"no {comp} asset for {plat} in versions.json")
             data = fetch(asset["url"], asset["sha256"])
             extract(data, asset["url"].rsplit("/", 1)[1], wanted, dest)

@@ -41,6 +41,7 @@ func cmdInstall(args []string) error {
 	applyDelay := fs.Duration("test-apply-delay", 0, "tests only: pause while applying a revision")
 	acmeProfile := fs.String("test-acme-profile", "", "tests only: ACME profile")
 	renewInterval := fs.Duration("test-renew-interval", 0, "tests only: Caddy renewal check interval")
+	vpnName := fs.String("vpn-name", "", "set up the built-in VPN with its control server at this DNS name, e.g. vpn.example.com")
 	noStart := fs.Bool("no-start", false, "do not start the services")
 	if _, err := parse(fs, args); err != nil {
 		return err
@@ -93,6 +94,9 @@ func cmdInstall(args []string) error {
 	if set["test-acme-profile"] {
 		cfg.Testing.ACMEProfile = *acmeProfile
 	}
+	if set["vpn-name"] {
+		cfg.VPN.Name = strings.ToLower(*vpnName)
+	}
 	if set["test-renew-interval"] {
 		cfg.Testing.RenewInterval = config.Duration{Duration: *renewInterval}
 	}
@@ -107,6 +111,9 @@ func cmdInstall(args []string) error {
 	}
 	fmt.Printf("\nGateway %s is running.\n", cfg.GatewayName)
 	fmt.Println("Next: entrypoint dns check, entrypoint service add <name>, entrypoint route add <host> ...")
+	if cfg.VPN.Enabled() {
+		fmt.Println("VPN: entrypoint vpn key prints a key for joining a machine.")
+	}
 	return nil
 }
 
@@ -156,7 +163,11 @@ func cmdStatus(args []string) error {
 	var st api.Status
 	apiErr := c.Do(cx, "GET", "/v1/status", nil, &st)
 	units := map[string]string{}
-	for _, u := range []string{"entrypointd", "entrypoint-caddy", "entrypoint-frps"} {
+	names := []string{"entrypointd", "entrypoint-caddy", "entrypoint-frps"}
+	if cfg.VPN.Enabled() {
+		names = append(names, "entrypoint-headscale", "entrypoint-tailscaled")
+	}
+	for _, u := range names {
 		units[u] = unitState(u + ".service")
 	}
 	certs := countCerts(cfg)
@@ -171,6 +182,9 @@ func cmdStatus(args []string) error {
 	}
 	fmt.Printf("Gateway: %s (tunnel: port %d)\n", cfg.GatewayName, cfg.TunnelPort)
 	fmt.Printf("Services: entrypointd=%s caddy=%s frps=%s\n", units["entrypointd"], units["entrypoint-caddy"], units["entrypoint-frps"])
+	if cfg.VPN.Enabled() {
+		fmt.Printf("VPN: %s headscale=%s tailscaled=%s\n", cfg.VPN.Name, units["entrypoint-headscale"], units["entrypoint-tailscaled"])
+	}
 	if apiErr != nil {
 		fmt.Println("entrypointd unavailable:", apiErr)
 		return exitError{1, ""}
@@ -184,7 +198,7 @@ func cmdStatus(args []string) error {
 		fmt.Println()
 	}
 	if len(st.Services) > 0 {
-		fmt.Println("\nSerwisy:")
+		fmt.Println("\nServices:")
 		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 		fmt.Fprintln(w, "  NAME\tPORT\tREPLICAS\tROUTES")
 		for _, s := range st.Services {
@@ -636,11 +650,12 @@ func cmdLogs(args []string) error {
 		return err
 	}
 	if len(pos) != 1 {
-		return exitError{2, "usage: entrypoint logs <entrypointd|caddy|frps>"}
+		return exitError{2, "usage: entrypoint logs <entrypointd|caddy|frps|headscale|tailscaled>"}
 	}
-	unit := map[string]string{"entrypointd": "entrypointd.service", "caddy": "entrypoint-caddy.service", "frps": "entrypoint-frps.service"}[pos[0]]
+	unit := map[string]string{"entrypointd": "entrypointd.service", "caddy": "entrypoint-caddy.service", "frps": "entrypoint-frps.service",
+		"headscale": "entrypoint-headscale.service", "tailscaled": "entrypoint-tailscaled.service"}[pos[0]]
 	if unit == "" {
-		return exitError{2, "service: entrypointd, caddy or frps"}
+		return exitError{2, "service: entrypointd, caddy, frps, headscale or tailscaled"}
 	}
 	a := []string{"-u", unit, "--no-pager", "-n", strconv.Itoa(*n)}
 	if *follow {

@@ -7,6 +7,8 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl iproute2 procps \
  && rm -rf /var/lib/apt/lists/*
 COPY dist/connector/linux_amd64/frpc /usr/local/bin/frpc
+# A VPN node (suite VPN), in userspace mode: no TUN device needed.
+COPY dist/deps/linux_amd64/tailscale dist/deps/linux_amd64/tailscaled /usr/local/bin/
 WORKDIR /app
 COPY e2e/apps/package.json ./
 COPY dist/npm/ /tmp/npm/

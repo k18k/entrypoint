@@ -40,7 +40,8 @@ func TestCaddyValidates(t *testing.T) {
 	}
 	dir := t.TempDir()
 	o := CaddyOptions{AdminSocket: filepath.Join(dir, "a.sock"), StorageDir: filepath.Join(dir, "st"), AskEndpoint: "http://127.0.0.1:7400/tls/ask",
-		ACME: config.ACME{Email: "a@example.com", CA: config.LetsEncryptProd, StagingCA: config.LetsEncryptStaging}}
+		ACME: config.ACME{Email: "a@example.com", CA: config.LetsEncryptProd, StagingCA: config.LetsEncryptStaging},
+		VPN:  config.VPN{Name: "vpn.example.com", Listen: "127.0.0.1:7600"}}
 	b, err := Caddy(s, o)
 	if err != nil {
 		t.Fatal(err)
@@ -90,5 +91,22 @@ func TestWildcardCertConsent(t *testing.T) {
 	}}
 	if err := bad.Validate(20000, 29999); err == nil {
 		t.Fatal("invalid TLS names accepted")
+	}
+}
+
+func TestVPNHostReserved(t *testing.T) {
+	o := CaddyOptions{ACME: config.ACME{CA: "https://ca"}, VPN: config.VPN{Name: "app.example.com", Listen: "127.0.0.1:7600"}}
+	if _, err := Caddy(sample(), o); err == nil || !strings.Contains(err.Error(), "reserved for the VPN") {
+		t.Fatalf("route on the VPN host accepted: %v", err)
+	}
+	o.VPN.Name = "vpn.example.com"
+	b, err := Caddy(sample(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The control server comes before the *.example.com wildcard.
+	cfg := string(b)
+	if i, j := strings.Index(cfg, `"127.0.0.1:7600"`), strings.LastIndex(cfg, `"*.example.com"`); i < 0 || i > j {
+		t.Fatalf("VPN route missing or after the wildcard:\n%s", cfg)
 	}
 }

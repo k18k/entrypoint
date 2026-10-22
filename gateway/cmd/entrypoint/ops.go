@@ -71,6 +71,10 @@ func cmdDNSCheck(args []string) error {
 	}
 	hosts := []string{cfg.GatewayName}
 	seen := map[string]bool{cfg.GatewayName: true}
+	if cfg.VPN.Enabled() {
+		hosts = append(hosts, cfg.VPN.Name)
+		seen[cfg.VPN.Name] = true
+	}
 	for _, r := range routes {
 		if !seen[r.Host] {
 			seen[r.Host] = true

@@ -2,10 +2,10 @@
 
 A self-hosted gateway for publishing services. It runs on a server with a public IP, accepts HTTP(S) traffic with automatic TLS and routes it:
 
-- to services reachable directly or over a VPN (`IP:port`);
+- to services reachable directly or over a VPN (`IP:port`), including its own built-in VPN (Headscale);
 - through tunnels to applications on machines without a public IP (behind NAT), with multiple replicas per service.
 
-The data path is handled by Caddy (HTTP, TLS, ACME) and frp (tunnels), as official binaries at pinned versions (`versions.json`). Our own code is the control layer (`entrypointd`), the `entrypoint` CLI, the tunnel connector and the Node.js SDK.
+The data path is handled by Caddy (HTTP, TLS, ACME), frp (tunnels) and, optionally, Headscale with Tailscale (VPN), as official binaries at pinned versions (`versions.json`). Our own code is the control layer (`entrypointd`), the `entrypoint` CLI, the tunnel connector and the Node.js SDK.
 
 Version **0.1**, for your own use and driven from the CLI. Specification: [docs/specification.md](docs/specification.md). Results of the prototype experiments: [docs/results.md](docs/results.md).
 
@@ -29,7 +29,7 @@ Version **0.1**, for your own use and driven from the CLI. Specification: [docs/
 **Gateway server:**
 
 - Linux with systemd (Debian 12/13, Ubuntu 24.04), x86_64 or arm64;
-- a public IPv4 address and open TCP ports **80**, **443** and **55555** (at the provider and in the system firewall);
+- a public IPv4 address and open TCP ports **80**, **443** and **55555** (at the provider and in the system firewall); with the VPN also UDP **3478** (STUN) and **41641** (direct node connections);
 - a domain where you can set A records.
 
 **Development and building from source:** Go 1.27, Node.js 22+, Python 3, Docker (for e2e tests). Packages: `make dist sdk`, full release: `make release`.
@@ -59,7 +59,7 @@ The installer:
 - creates the private tunnel CA and the certificate for port 55555;
 - sets up systemd units tied together in `entrypoint.target`.
 
-Running `entrypoint install` again is safe: it updates the units and removes nothing.
+Running `entrypoint install` again is safe: it updates the units and removes nothing. It also turns on the VPN on an existing gateway (below).
 
 **Practice on Let's Encrypt staging first.** A route with `--acme-staging` gets a test certificate and does not use up the limit of 50 certificates per domain per week.
 
@@ -82,6 +82,34 @@ sudo entrypoint dns check          # which DNS records are needed and whether th
 ```
 
 WebSockets, SSE and HTTP/2 work without extra configuration.
+
+### Machines in the built-in VPN
+
+The gateway can run its own VPN: a Headscale control server behind Caddy, and the gateway itself as a node, so routes can point at any machine in the VPN. Machines join with the regular Tailscale client and need no public IP.
+
+```bash
+# DNS: A vpn.example.com -> <server IP>
+sudo entrypoint install --vpn-name vpn.example.com
+sudo entrypoint vpn key                      # prints a single-use key, valid for 1 hour, once
+```
+
+On the machine (with the [Tailscale client](https://tailscale.com/download) installed):
+
+```bash
+sudo tailscale up --login-server https://vpn.example.com --auth-key <key>
+```
+
+Back on the gateway:
+
+```bash
+sudo entrypoint vpn nodes                    # VPN addresses (100.64.x.y)
+sudo entrypoint route add app.example.com --to 100.64.0.2:3000
+sudo entrypoint vpn rm <id>                  # removes a machine from the VPN
+```
+
+- Relaying and NAT traversal use the gateway's built-in DERP server only; nothing goes through Tailscale Inc.'s servers.
+- Every machine in the VPN can reach every other one (no ACL policy yet).
+- The VPN name is fixed once set, and no route may use it. Don't run another Tailscale on the gateway itself.
 
 ### An application through a tunnel
 
@@ -179,12 +207,13 @@ Revocations go to a separate append-only log. Neither a revision rollback nor a 
 | `entrypoint service add/rm/list` | Tunnel services; the port of a removed service stays reserved forever |
 | `entrypoint route add/list/rm` | Routes `host[/prefix]` to `--to IP:port` or `--service`; options `--strip-prefix`, `--max-body 50MB`, `--header-timeout 60s`, `--acme-staging`, and for wildcards `--tls-name`, `--tls-on-demand` |
 | `entrypoint token create/list/revoke` | Service tokens |
+| `entrypoint vpn key/nodes/rm` | Built-in VPN: join keys (`--reusable`, `--expiration`), machines and their addresses, removal |
 | `entrypoint dns check` | Required DNS records and their current state (the gateway does not change DNS) |
 | `entrypoint ca status`, `ca rotate start\|switch\|finish` | The private tunnel CA and its three-step rotation |
 | `entrypoint revision list`, `revision show <n>` | Change history and apply errors |
-| `entrypoint backup -o file.age` | Password-encrypted backup (database, CA, certificates, configuration) |
+| `entrypoint backup -o file.age` | Password-encrypted backup (database, CA, certificates, configuration, VPN state) |
 | `entrypoint restore file.age` | Restore onto an installed gateway of the same version |
-| `entrypoint logs entrypointd\|caddy\|frps [-f]` | Logs from journald |
+| `entrypoint logs entrypointd\|caddy\|frps\|headscale\|tailscaled [-f]` | Logs from journald |
 | `entrypoint uninstall [--purge]` | Removes the units and programs; `--purge` also removes data |
 
 Commands with script-friendly output have `--json`. Changes accept `--base-rev <n>`: the change is rejected if a newer revision has been created in the meantime.
@@ -250,7 +279,7 @@ Each copy of the environment has its own compose project and the subnets `10.77.
 - Full failure tests, ARM64 tests, a performance benchmark (v0.2.0).
 - Per-IP connection limits on the public side (decision before v0.2.0).
 - Static site releases (v0.3), TCP/UDP forwarding and TURN (v0.4).
-- Wildcard certificates via DNS-01, OIDC, HA, a built-in VPN (v1).
+- Wildcard certificates via DNS-01, OIDC, HA (v1).
 - Publishing to the npmjs.com registry: the SDK is available from git and from GitHub Packages.
 - The connector for Linux arm64, macOS and Windows is in the release, but has no e2e tests.
 

@@ -40,6 +40,32 @@
       }
     }
   },
+  "headscale": {
+    "version": "0.29.5",
+    "assets": {
+      "linux_amd64": {
+        "url": "https://github.com/juanfont/headscale/releases/download/v0.29.5/headscale_0.29.5_linux_amd64",
+        "sha256": "e979d27fe17d924d33bb6ab7504f6338d0635989a0cfdcfbc0ceb637dbcbe980"
+      },
+      "linux_arm64": {
+        "url": "https://github.com/juanfont/headscale/releases/download/v0.29.5/headscale_0.29.5_linux_arm64",
+        "sha256": "3afddd207b89ac22cfad4235cc163c6e538cc59ada139e7c0bf47640c5d9e945"
+      }
+    }
+  },
+  "tailscale": {
+    "version": "1.104.1",
+    "assets": {
+      "linux_amd64": {
+        "url": "https://pkgs.tailscale.com/stable/tailscale_1.104.1_amd64.tgz",
+        "sha256": "108d1d96ecf410d305571e173516f27038f870919a9b89c914a167c6d33a4528"
+      },
+      "linux_arm64": {
+        "url": "https://pkgs.tailscale.com/stable/tailscale_1.104.1_arm64.tgz",
+        "sha256": "f60294374967f3dfd8cf57bbbd474d6cfce32d123e3a8ddeab82a87940daa806"
+      }
+    }
+  },
   "e2e": {
     "debian": "trixie",
     "pebble": "2.10.1",

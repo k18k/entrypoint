@@ -3,6 +3,7 @@
 package install
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -21,6 +22,7 @@ import (
 	"github.com/k18k/entrypoint/gateway/internal/pki"
 	"github.com/k18k/entrypoint/gateway/internal/render"
 	"github.com/k18k/entrypoint/gateway/internal/spec"
+	"github.com/k18k/entrypoint/gateway/internal/store"
 )
 
 // Options are the installation parameters.
@@ -145,6 +147,9 @@ func Install(o Options) error {
 			return fmt.Errorf("the gateway is already installed as %s; renaming is not supported in v0.1", prev.GatewayName)
 		}
 		cfg.GatewayName = prev.GatewayName
+		if prev.VPN.Enabled() && cfg.VPN.Name != prev.VPN.Name {
+			return fmt.Errorf("the VPN is already set up as %s; changing or removing it is not supported", prev.VPN.Name)
+		}
 		fmt.Fprintf(out, "Existing installation %s: updating services, data is kept.\n", prev.GatewayName)
 	}
 	if err := cfg.Check(); err != nil {
@@ -153,8 +158,20 @@ func Install(o Options) error {
 	if _, err := spec.NormalizeHost(cfg.GatewayName); err != nil || strings.HasPrefix(cfg.GatewayName, "*.") {
 		return fmt.Errorf("--gateway-name must be the gateway's DNS name, e.g. tunnel.example.com")
 	}
+	if cfg.VPN.Enabled() {
+		if h, err := spec.NormalizeHost(cfg.VPN.Name); err != nil || h != cfg.VPN.Name || strings.HasPrefix(h, "*.") || h == cfg.GatewayName {
+			return fmt.Errorf("--vpn-name must be its own DNS name, e.g. vpn.example.com")
+		}
+		if err := vpnHostFree(cfg); err != nil {
+			return err
+		}
+	}
 
-	for _, u := range []string{config.UserDaemon, config.UserCaddy, config.UserFrps} {
+	users := []string{config.UserDaemon, config.UserCaddy, config.UserFrps}
+	if cfg.VPN.Enabled() {
+		users = append(users, config.UserVPN)
+	}
+	for _, u := range users {
 		if err := ensureUser(u); err != nil {
 			return err
 		}
@@ -179,9 +196,20 @@ func Install(o Options) error {
 		{filepath.Join(cfg.CaddyDir(), "home"), config.UserCaddy, config.UserCaddy, 0o700},
 		{filepath.Join(dd, "frps"), "", config.UserFrps, 0o750},
 	}
+	if cfg.VPN.Enabled() {
+		dirs = append(dirs,
+			dir{cfg.HeadscaleDir(), config.UserVPN, config.UserVPN, 0o700},
+			dir{cfg.TailscaleDir(), "", "", 0o700})
+	}
 	for _, d := range dirs {
 		if err := ensureDir(d); err != nil {
 			return fmt.Errorf("directory %s: %w", d.path, err)
+		}
+	}
+	if cfg.VPN.Enabled() {
+		// Restored files arrive owned by root, and the user's UID may differ on a new machine.
+		if err := run("chown", "-R", config.UserVPN+":"+config.UserVPN, cfg.HeadscaleDir()); err != nil {
+			return err
 		}
 	}
 
@@ -261,6 +289,16 @@ func Install(o Options) error {
 		}
 	}
 
+	if cfg.VPN.Enabled() {
+		hc, err := HeadscaleConfig(cfg)
+		if err != nil {
+			return err
+		}
+		if err := writeOwned(cfg.HeadscaleConfig(), hc, 0o640, "", config.UserVPN); err != nil {
+			return err
+		}
+	}
+
 	if err := writeUnits(cfg, o.ConfigPath); err != nil {
 		return err
 	}
@@ -273,22 +311,58 @@ func Install(o Options) error {
 	if o.NoStart {
 		return nil
 	}
-	if err := run("systemctl", "enable", "entrypoint.target", "entrypointd.socket", "entrypointd.service", "entrypoint-caddy.service", "entrypoint-frps.service", "entrypoint-frps-reload.path"); err != nil {
+	start := []string{"entrypoint.target", "entrypointd.socket", "entrypointd.service", "entrypoint-caddy.service", "entrypoint-frps.service", "entrypoint-frps-reload.path"}
+	if cfg.VPN.Enabled() {
+		start = append(start, VPNUnits...)
+	}
+	if err := run("systemctl", append([]string{"enable"}, start...)...); err != nil {
 		return err
 	}
 	// Restarting picks up new programs after a reinstall; on the first install it just starts them.
 	_ = run("systemctl", "stop", "entrypointd.service", "entrypointd.socket")
-	if err := run("systemctl", "restart", "entrypoint.target", "entrypointd.socket", "entrypointd.service", "entrypoint-caddy.service", "entrypoint-frps.service", "entrypoint-frps-reload.path"); err != nil {
+	if err := run("systemctl", append([]string{"restart"}, start...)...); err != nil {
 		return err
 	}
-	return waitHealthy(cfg, 60*time.Second)
+	if err := waitHealthy(cfg, 60*time.Second); err != nil {
+		return err
+	}
+	if cfg.VPN.Enabled() {
+		return joinVPN(cfg, out)
+	}
+	return nil
+}
+
+// vpnHostFree rejects a VPN name that existing routes already use.
+func vpnHostFree(cfg config.Config) error {
+	if !exists(cfg.DBPath()) {
+		return nil
+	}
+	st, err := store.Open(cfg.DBPath())
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	head, err := st.Head(context.Background())
+	if err != nil || head == nil {
+		return err
+	}
+	for _, r := range head.Spec.Routes {
+		if r.Host == cfg.VPN.Name {
+			return fmt.Errorf("--vpn-name %s is used by route %s; remove the route first", cfg.VPN.Name, r.ID)
+		}
+	}
+	return nil
 }
 
 func waitHealthy(cfg config.Config, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if exists(cfg.APISocket) {
-			if err := run("systemctl", "is-active", "--quiet", "entrypointd.service", "entrypoint-caddy.service", "entrypoint-frps.service"); err == nil {
+			units := []string{"is-active", "--quiet", "entrypointd.service", "entrypoint-caddy.service", "entrypoint-frps.service"}
+			if cfg.VPN.Enabled() {
+				units = append(units, VPNUnits...)
+			}
+			if err := run("systemctl", units...); err == nil {
 				return nil
 			}
 		}

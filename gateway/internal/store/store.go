@@ -462,6 +462,17 @@ func (s *Store) Snapshot(ctx context.Context, dest string) error {
 	return err
 }
 
+// CopyDB writes a consistent copy of another live SQLite database (Headscale's) to dest.
+func CopyDB(ctx context.Context, src, dest string) error {
+	db, err := sql.Open("sqlite", "file:"+src+"?mode=ro&_pragma=busy_timeout(5000)")
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	_, err = db.ExecContext(ctx, `VACUUM INTO ?`, dest)
+	return err
+}
+
 // RevokeAll revokes every token present in any revision (emergency restore).
 func (s *Store) RevokeAll(ctx context.Context, reason string) (int, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT spec FROM revisions`)

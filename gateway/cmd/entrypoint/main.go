@@ -20,7 +20,7 @@ import (
 const usage = `entrypoint — service publishing gateway (v%s)
 
 Usage:
-  entrypoint install --gateway-name <name> --email <e-mail> [options]
+  entrypoint install --gateway-name <name> --email <e-mail> [--vpn-name <name>] [options]
   entrypoint status [--json]
   entrypoint service add <name> [--health <path>]
   entrypoint service rm <name>
@@ -32,11 +32,14 @@ Usage:
   entrypoint token list [--json]
   entrypoint token revoke <id> [--now]
   entrypoint dns check
+  entrypoint vpn key [--reusable] [--expiration <duration>]
+  entrypoint vpn nodes [--json]
+  entrypoint vpn rm <id>
   entrypoint ca status | entrypoint ca rotate start|switch|finish
   entrypoint revision list | entrypoint revision show <n>
   entrypoint backup [-o <file>]
   entrypoint restore <file>
-  entrypoint logs <entrypointd|caddy|frps> [-f] [-n <lines>]
+  entrypoint logs <entrypointd|caddy|frps|headscale|tailscaled> [-f] [-n <lines>]
   entrypoint update
   entrypoint uninstall [--purge] [--yes]
   entrypoint version
@@ -85,6 +88,8 @@ func dispatch(cmd string, args []string) error {
 		return sub(args, map[string]func([]string) error{"add": cmdRouteAdd, "rm": cmdRouteRm, "list": cmdRouteList})
 	case "token":
 		return sub(args, map[string]func([]string) error{"create": cmdTokenCreate, "list": cmdTokenList, "revoke": cmdTokenRevoke})
+	case "vpn":
+		return sub(args, map[string]func([]string) error{"key": cmdVPNKey, "nodes": cmdVPNNodes, "rm": cmdVPNRemove})
 	case "dns":
 		return sub(args, map[string]func([]string) error{"check": cmdDNSCheck})
 	case "ca":

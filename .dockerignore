@@ -2,3 +2,5 @@ dist
 !dist/connector
 !dist/npm
 !dist/e2e
+!dist/deps/linux_amd64/tailscale
+!dist/deps/linux_amd64/tailscaled

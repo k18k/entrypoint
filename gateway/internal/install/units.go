@@ -11,22 +11,7 @@ import (
 
 const unitDir = "/etc/systemd/system"
 
-// UnitNames are all units of the installation.
-var UnitNames = []string{
-	"entrypoint.target",
-	"entrypointd.socket",
-	"entrypointd.service",
-	"entrypoint-caddy.service",
-	"entrypoint-frps.service",
-	"entrypoint-frps-reload.path",
-	"entrypoint-frps-reload.service",
-}
-
-func units(cfg config.Config, configPath string) map[string]string {
-	bin := filepath.Join(config.OptDir, "current", "bin")
-	dd := cfg.DataDir
-	caddyHome := filepath.Join(cfg.CaddyDir(), "home")
-	hardening := `NoNewPrivileges=yes
+const hardening = `NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
@@ -37,6 +22,85 @@ ProtectControlGroups=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
 UMask=0027`
+
+// UnitNames are all units of the installation.
+var UnitNames = []string{
+	"entrypoint.target",
+	"entrypointd.socket",
+	"entrypointd.service",
+	"entrypoint-caddy.service",
+	"entrypoint-frps.service",
+	"entrypoint-frps-reload.path",
+	"entrypoint-frps-reload.service",
+	"entrypoint-headscale.service",
+	"entrypoint-tailscaled.service",
+}
+
+// VPNUnits run the built-in VPN (config.VPN).
+var VPNUnits = []string{"entrypoint-headscale.service", "entrypoint-tailscaled.service"}
+
+func units(cfg config.Config, configPath string) map[string]string {
+	u := baseUnits(cfg, configPath)
+	if cfg.VPN.Enabled() {
+		u["entrypoint.target"] = strings.Replace(u["entrypoint.target"], "entrypoint-frps-reload.path\n", "entrypoint-frps-reload.path "+strings.Join(VPNUnits, " ")+"\n", 1)
+		for k, v := range vpnUnits(cfg) {
+			u[k] = v
+		}
+	}
+	return u
+}
+
+func vpnUnits(cfg config.Config) map[string]string {
+	bin := filepath.Join(config.OptDir, "current", "bin")
+	td := cfg.TailscaleDir()
+	tsFlags := fmt.Sprintf("--state=%s/tailscaled.state --statedir=%s --socket=%s --tun=ep-vpn0", td, td, config.TailscaleSocket)
+	return map[string]string{
+		"entrypoint-headscale.service": fmt.Sprintf(`[Unit]
+Description=Entrypoint: Headscale (VPN control server)
+PartOf=entrypoint.target
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=%[1]s
+Group=%[1]s
+ExecStart=%[2]s/headscale serve -c %[3]s
+Restart=always
+RestartSec=1
+RuntimeDirectory=entrypoint-headscale
+RuntimeDirectoryMode=0750
+ReadWritePaths=%[4]s
+%[5]s
+
+[Install]
+WantedBy=entrypoint.target
+`, config.UserVPN, bin, cfg.HeadscaleConfig(), cfg.HeadscaleDir(), hardening),
+		// Root with a TUN device, like the upstream unit: Caddy reaches node addresses through it.
+		"entrypoint-tailscaled.service": fmt.Sprintf(`[Unit]
+Description=Entrypoint: tailscaled (the gateway as a VPN node)
+PartOf=entrypoint.target
+After=network-online.target entrypoint-headscale.service
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStart=%[1]s/tailscaled %[2]s --port=41641 --no-logs-no-support
+ExecStopPost=%[1]s/tailscaled %[2]s --cleanup
+Restart=on-failure
+RuntimeDirectory=entrypoint-tailscale
+RuntimeDirectoryMode=0755
+
+[Install]
+WantedBy=entrypoint.target
+`, bin, tsFlags),
+	}
+}
+
+func baseUnits(cfg config.Config, configPath string) map[string]string {
+	bin := filepath.Join(config.OptDir, "current", "bin")
+	dd := cfg.DataDir
+	caddyHome := filepath.Join(cfg.CaddyDir(), "home")
+
 	return map[string]string{
 		"entrypoint.target": `[Unit]
 Description=Entrypoint: service publishing gateway

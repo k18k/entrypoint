@@ -7,7 +7,7 @@
 #   make e2e             e2e tests of our code in Docker (SHARDS=4 parallel shards)
 #   make e2e-experiments experiments: Caddy and frp behavior (after changing versions.json)
 #   make e2e SUITE=Routing   one suite (names: Smoke Install TLS Routing Tunnels
-#                        Replicas State Revoke Ops SDK Resilience Secrets)
+#                        Replicas State Revoke Ops SDK Resilience Secrets VPN)
 #   make e2e-up / e2e-down   environment without running tests
 
 SHELL := /bin/bash
@@ -42,7 +42,7 @@ dist: deps build
 	@for p in $(filter linux_%,$(PLATFORMS)); do \
 	  name=entrypoint_$(VERSION)_$$p; d=dist/release/$$name; rm -rf $$d; mkdir -p $$d/bin; \
 	  cp dist/bin/$$p/entrypoint dist/bin/$$p/entrypointd $$d/bin/; \
-	  cp dist/deps/$$p/caddy dist/deps/$$p/frps $$d/bin/; \
+	  cp dist/deps/$$p/caddy dist/deps/$$p/frps dist/deps/$$p/headscale dist/deps/$$p/tailscale dist/deps/$$p/tailscaled $$d/bin/; \
 	  cp versions.json $$d/; echo $(VERSION) > $$d/VERSION; \
 	  tar -C dist/release -czf dist/release/$$name.tar.gz $$name; \
 	  (cd dist/release && sha256sum $$name.tar.gz > $$name.tar.gz.sha256); \

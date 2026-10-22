@@ -28,6 +28,7 @@ const (
 	UserDaemon = "entrypoint"
 	UserCaddy  = "entrypoint-caddy"
 	UserFrps   = "entrypoint-frps"
+	UserVPN    = "entrypoint-headscale"
 )
 
 type Duration struct{ time.Duration }
@@ -68,6 +69,15 @@ type PortPool struct {
 	End   int `json:"end"`
 }
 
+// VPN is the built-in VPN: Headscale behind Caddy and the gateway as a Tailscale node.
+// Off while Name is empty.
+type VPN struct {
+	Name   string `json:"name,omitempty"`   // DNS name of the Headscale control server, e.g. vpn.example.com
+	Listen string `json:"listen,omitempty"` // Headscale HTTP; metrics listen on the next port
+}
+
+func (v VPN) Enabled() bool { return v.Name != "" }
+
 // Testing holds switches used only by the e2e tests.
 type Testing struct {
 	ApplyDelay    Duration `json:"applyDelay,omitempty"`    // pause after writing the snapshot, before Caddy
@@ -90,6 +100,7 @@ type Config struct {
 	Limits           Limits   `json:"limits"`
 	HeartbeatTimeout int      `json:"heartbeatTimeout"` // seconds, frps
 	DriftInterval    Duration `json:"driftInterval"`
+	VPN              VPN      `json:"vpn"`
 	Testing          Testing  `json:"testing,omitempty"`
 }
 
@@ -109,6 +120,7 @@ func Default() Config {
 			LoginsPerTokenPerMinute: 30, SessionsPerToken: 20, ProxyOpsPerTokenPerMinute: 60},
 		HeartbeatTimeout: 40,
 		DriftInterval:    Duration{30 * time.Second},
+		VPN:              VPN{Listen: "127.0.0.1:7600"},
 	}
 }
 
@@ -136,11 +148,14 @@ func (c Config) Check() error {
 	}
 	// These values end up in root-owned systemd units or are executed, so they must be
 	// plain addresses and absolute paths (no unit-file syntax, e.g. from a restored backup).
-	for name, v := range map[string]string{"pluginListen": c.PluginListen, "frpsAPI": c.FrpsAPI} {
+	for name, v := range map[string]string{"pluginListen": c.PluginListen, "frpsAPI": c.FrpsAPI, "vpn.listen": c.VPN.Listen} {
 		ap, err := netip.ParseAddrPort(v)
 		if err != nil || !ap.Addr().IsLoopback() {
 			return fmt.Errorf("invalid %s %q: expected a loopback address:port", name, v)
 		}
+	}
+	if ap := netip.MustParseAddrPort(c.VPN.Listen); ap.Port() == 0 || ap.Port() == 65535 {
+		return fmt.Errorf("invalid vpn.listen %q: the next port is used for metrics", c.VPN.Listen)
 	}
 	for name, v := range map[string]string{"dataDir": c.DataDir, "apiSocket": c.APISocket, "caddyAdminSocket": c.CaddyAdminSocket, "caddyBin": c.CaddyBin} {
 		if !filepath.IsAbs(v) || filepath.Clean(v) != v || strings.ContainsFunc(v, func(r rune) bool { return r < 0x20 || r == 0x7f || r == ' ' }) {
@@ -175,3 +190,20 @@ func (c Config) CaddyStorage() string        { return filepath.Join(c.DataDir, "
 func (c Config) FrpsConfig() string          { return filepath.Join(c.DataDir, "frps", "frps.json") }
 func (c Config) AuthSnapshot() string        { return filepath.Join(c.DataDir, "state", "authz.json") }
 func (c Config) FrpsAPIPasswordFile() string { return filepath.Join(c.DataDir, "secrets", "frps-api") }
+func (c Config) HeadscaleDir() string        { return filepath.Join(c.DataDir, "headscale") }
+func (c Config) HeadscaleConfig() string {
+	return filepath.Join(c.DataDir, "headscale", "headscale.yaml")
+}
+func (c Config) TailscaleDir() string { return filepath.Join(c.DataDir, "tailscale") }
+
+// VPNMetrics is Headscale's metrics address, the port after VPN.Listen.
+func (c Config) VPNMetrics() string {
+	ap := netip.MustParseAddrPort(c.VPN.Listen)
+	return netip.AddrPortFrom(ap.Addr(), ap.Port()+1).String()
+}
+
+// Runtime sockets of the VPN processes (their units' RuntimeDirectory).
+const (
+	HeadscaleSocket = "/run/entrypoint-headscale/headscale.sock"
+	TailscaleSocket = "/run/entrypoint-tailscale/tailscaled.sock"
+)

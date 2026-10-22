@@ -441,6 +441,17 @@ func RunDir(name string) string {
 
 // PebbleRoots returns Pebble's current roots (they change on every Pebble start).
 func PebbleRoots() (*x509.CertPool, error) {
+	pem, err := PebbleRootsPEM()
+	if err != nil {
+		return nil, err
+	}
+	pool := x509.NewCertPool()
+	pool.AppendCertsFromPEM(pem)
+	return pool, nil
+}
+
+// PebbleRootsPEM returns Pebble's current roots as PEM (for programs in client containers).
+func PebbleRootsPEM() ([]byte, error) {
 	minica, err := os.ReadFile(filepath.Join(Repo(), "e2e", "pebble", "pebble.minica.pem"))
 	if err != nil {
 		return nil, err
@@ -448,7 +459,7 @@ func PebbleRoots() (*x509.CertPool, error) {
 	mp := x509.NewCertPool()
 	mp.AppendCertsFromPEM(minica)
 	c := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: mp}}}
-	pool := x509.NewCertPool()
+	var pem []byte
 	for i := 0; i < 3; i++ {
 		resp, err := c.Get(fmt.Sprintf("https://pebble:15000/roots/%d", i))
 		if err != nil {
@@ -459,9 +470,9 @@ func PebbleRoots() (*x509.CertPool, error) {
 		if resp.StatusCode != 200 {
 			break
 		}
-		pool.AppendCertsFromPEM(b)
+		pem = append(pem, b...)
 	}
-	return pool, nil
+	return pem, nil
 }
 
 // HTTPClient returns a client that trusts only Pebble (like a browser trusts Let's Encrypt).

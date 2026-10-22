@@ -22,6 +22,7 @@ type CaddyOptions struct {
 	AskEndpoint string
 	ACME        config.ACME
 	Testing     config.Testing
+	VPN         config.VPN
 }
 
 func OptionsFrom(c config.Config) CaddyOptions {
@@ -31,6 +32,7 @@ func OptionsFrom(c config.Config) CaddyOptions {
 		AskEndpoint: "http://" + c.PluginListen + "/tls/ask",
 		ACME:        c.ACME,
 		Testing:     c.Testing,
+		VPN:         c.VPN,
 	}
 }
 
@@ -110,6 +112,24 @@ func Caddy(s *spec.Spec, o CaddyOptions) ([]byte, error) {
 
 	routes := []any{}
 	var exactProd, exactStaging, wildProd, wildStaging, automate, skip []string
+	if o.VPN.Enabled() {
+		if byHost[o.VPN.Name] != nil {
+			return nil, fmt.Errorf("%s is reserved for the VPN control server", o.VPN.Name)
+		}
+		// First, so a wildcard route never shadows it. Headscale upgrades /ts2021 and /derp
+		// to long-lived connections and limits request bodies itself.
+		routes = append(routes, obj{
+			"match": []any{obj{"host": []string{o.VPN.Name}}},
+			"handle": []any{obj{
+				"handler":            "reverse_proxy",
+				"upstreams":          []any{obj{"dial": o.VPN.Listen}},
+				"transport":          obj{"protocol": "http", "dial_timeout": "5s"},
+				"stream_close_delay": "1h",
+			}},
+			"terminal": true,
+		})
+		exactProd = append(exactProd, o.VPN.Name)
+	}
 	for _, h := range hosts {
 		rs := byHost[h]
 		// The longest prefix wins: sort by length, descending.

@@ -24,16 +24,16 @@ The first usable version is v0.1, intended for personal use and controlled throu
 | --- | --- | --- | --- |
 | v0.0.x | Prototype | Variant B core controlled from the CLI, experiments 1–3 | Experiment results recorded (section 17) |
 | v0.1 | For personal use | Installer, HTTP(S) routing and WebSockets, IP:port upstreams, tunnels with per-service tokens, private CA, token revocation, connector, SDK with the node:http adapter, CLI, backup and restore | v0.1 readiness list (section 19) |
-| v0.2.0 | First public | Panel, Fastify and Hono adapters, update with automatic rollback, maintenance mode, full e2e and failure tests, ARM64 | v0.2.0 readiness list (section 19) |
+| v0.2.0 | First public | Panel, Fastify and Hono adapters, update with automatic rollback, maintenance mode, full e2e and failure tests, ARM64, built-in VPN | v0.2.0 readiness list (section 19) |
 | v0.3 | Extension | Static releases | Static suite tests |
 | v0.4 | Extension | TCP/UDP forwarding and TURN, after separate prototypes | UDP and TURN prototype results |
-| v1 | Integrations and scale | Wildcard certificates via DNS-01, resource-based load balancing, OIDC, HA, built-in VPN | To be determined |
+| v1 | Integrations and scale | Wildcard certificates via DNS-01, resource-based load balancing, OIDC, HA | To be determined |
 
 The update in v0.1 is manual: backup, then install the new version. Automatic update rollback arrives in v0.2.0.
 
 ## 3. Architecture
 
-Four separate processes under systemd, installed by a single installer. The replicas of a service form an frp group on one fixed port, so Caddy has one static upstream per service and entrypointd is not in the data path (variant B).
+Four separate processes under systemd (two more with the built-in VPN), installed by a single installer. The replicas of a service form an frp group on one fixed port, so Caddy has one static upstream per service and entrypointd is not in the data path (variant B).
 
 &#91;embedded content: architecture · variant B, 4 processes under systemd\]
 
@@ -43,6 +43,8 @@ Four separate processes under systemd, installed by a single installer. The repl
 | frps | Official binary, pinned version | Tunnel transport; replica groups on fixed service ports, binding to 127.0.0.1 only, vhost disabled |
 | entrypointd | Our code, Go | State in SQLite, revisions and applying them, frps authorization plugin, port allocation, revocation journal, certificate consent endpoint, API for the CLI and panel |
 | panel | Our code, Node.js (from v0.2.0) | Interface; no state of its own, everything goes through the entrypointd API |
+| headscale | Official binary, pinned version (optional, from v0.2.0) | VPN control server and its embedded DERP relay, behind Caddy |
+| tailscaled | Official binary, pinned version (optional, from v0.2.0) | The gateway as a VPN node, so Caddy reaches node addresses |
 
 Caddy and frps start from the last fully applied configuration stored on disk. The gateway therefore starts even when entrypointd and the panel are not running.
 
@@ -53,8 +55,17 @@ Caddy and frps start from the last fully applied configuration stored on disk. T
 | entrypointd and its socket stopped | works except tunnels | dropped at the next heartbeat (up to 10 s) | rejected | impossible |
 | frps | works except tunnels | dropped | after frps restarts | possible |
 | caddy | down | no traffic | work | possible |
+| headscale | works; routes to VPN nodes keep working over established node connections | work | work | possible; no new VPN nodes |
 
 After test 3.1 the plugin handles Login, NewProxy and Ping (rejecting Ping drops the sessions of revoked tokens). The plugin socket is held by systemd (`entrypointd.socket`), so when the daemon crashes and restarts, frps requests wait in the queue and sessions continue. Active sessions depend on entrypointd only when it is fully unavailable, including the socket. The entrypointd rows were updated after test 3.1b; measurements are in `docs/results.md`.
+
+**Built-in VPN (from v0.2.0, optional).** `entrypoint install --vpn-name vpn.example.com` adds Headscale and tailscaled, so routes can point at machines without a public IP that run the regular Tailscale client. This complements tunnels: a tunnel publishes one app with replicas and drain, the VPN reaches whole machines by address.
+
+- **Control server:** Headscale listens on 127.0.0.1 (7600, metrics on 7601) and Caddy serves it on the VPN name with an ACME certificate, upgrading `/ts2021` and `/derp`. The name is reserved: no route may use it. It is fixed once set.
+- **Relay:** only the embedded DERP server (region 999) with STUN on UDP 3478; no DERP map or log uploads go to Tailscale Inc. The gateway node listens on UDP 41641 for direct connections.
+- **The gateway as a node:** tailscaled runs as root with its own TUN device (`ep-vpn0`) and logs in over loopback during install, so it does not wait for the certificate. Its key goes through a file, never the command line.
+- **Joining:** `entrypoint vpn key` issues a Headscale pre-auth key (single use and 1 h by default), shown once like a tunnel token. `vpn nodes` and `vpn rm` list and remove machines. All nodes belong to one Headscale user and there is no ACL policy: every node can reach every other one.
+- **Backup:** Headscale's database (a consistent copy), its keys and the gateway's node state are part of the backup, so a restored gateway keeps its VPN address and the nodes reconnect without rejoining.
 
 **Comparison variant (SRV).** Dynamic Caddy upstreams from a local DNS server run by entrypointd. Developed only if variant B does not pass experiment 1. It has known drawbacks: new requests depend on the daemon, there are no active Caddy health checks with dynamic upstreams, and there is no confirmation that a replica has withdrawn.
 
@@ -356,7 +367,7 @@ Per-IP connection limits on the public side need a decision before v0.2.0: a Cad
 
 **TCP/UDP forwarding and TURN (v0.4)** come only after separate prototypes. To be checked: UDP through frp with QUIC transport under loss, jitter and congestion, and TURN/TLS sharing port 443 with HTTPS through SNI. TURN needs its own authentication model and limits so that the gateway does not become an open traffic relay.
 
-**v1:** wildcard certificates through DNS-01, load balancing by resources reported by replicas, OIDC in front of applications, several gateways (HA) and a built-in VPN.
+**v1:** wildcard certificates through DNS-01, load balancing by resources reported by replicas, OIDC in front of applications and several gateways (HA).
 
 ## 16. Claim status
 
@@ -471,6 +482,7 @@ After each test, artifacts remain: the logs of all containers, the applied Caddy
 | 10 | Panel | Login and attempt limit; HttpOnly, Secure, SameSite cookie; CSRF; routes, services, tokens; revocation from the panel | v0.2.0 |
 | 11 | Resilience | Failure of entrypointd, frps and a stubbed API client; Caddy restart; client network cut for 5 s and 60 s; packet loss | v0.1 (basic), v0.2.0 (full) |
 | 12 | Secret protection | Searching logs, errors and events for tokens and keys; permissions of files with secrets | v0.1 |
+| 13 | Built-in VPN | A node joins with a CLI key and serves through a route to its VPN address; the VPN name is reserved; the key is not in logs; removing a node cuts its route; backup and restore keep the nodes and the gateway's VPN address | v0.2.0 |
 
 **What containers will not show:** the real Let's Encrypt and its limits, the VPS provider's firewall, public DNS and IPv6, link saturation, ARM64 (needs a separate runner or emulation) or reliable performance. That is why every release also goes through a smoke test on a real server.
 
@@ -489,7 +501,7 @@ After each test, artifacts remain: the logs of all containers, the applied Caddy
 
 **v0.2.0, first public release:**
 
-- [ ] e2e suites 1–12 green in CI on x86\_64
+- [ ] e2e suites 1–13 green in CI on x86\_64
 - [ ] Suites 1, 4 and 5 green on ARM64
 - [ ] Panel with session protection and CSRF
 - [ ] Update with automatic rollback and maintenance mode
@@ -497,6 +509,7 @@ After each test, artifacts remain: the logs of all containers, the applied Caddy
 - [ ] Smoke test on a real VPS with Let's Encrypt staging
 - [ ] Restore on a fresh machine outside the test environment
 - [ ] Benchmark on the reference machine with the result recorded
+- [ ] Built-in VPN: a machine behind NAT reachable through a route on a real VPS
 
 ## 20. Starting in Claude Code
 

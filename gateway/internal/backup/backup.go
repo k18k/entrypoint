@@ -1,8 +1,9 @@
 // Package backup creates and restores a password-encrypted archive of the gateway's state.
 //
 // The archive (tar in an age/scrypt container) holds: a consistent SQLite copy, the private CA with
-// its key, the tunnel port certificate, Caddy's storage (ACME account, certificates), the startup
-// configuration and a version manifest. Logs are not part of the backup.
+// its key, the tunnel port certificate, Caddy's storage (ACME account, certificates), the VPN state
+// (Headscale's database and keys, the gateway's node identity), the startup configuration and a
+// version manifest. Logs are not part of the backup.
 package backup
 
 import (
@@ -46,6 +47,8 @@ func entries(cfg config.Config) map[string]string {
 		"tunnel":        cfg.TunnelDir(),
 		"caddy/storage": cfg.CaddyStorage(),
 		"secrets":       filepath.Join(cfg.DataDir, "secrets"),
+		"headscale":     cfg.HeadscaleDir(),
+		"tailscale":     cfg.TailscaleDir(),
 	}
 }
 
@@ -108,6 +111,18 @@ func Create(ctx context.Context, cfg config.Config, cfgPath, password string, w 
 			return nil, err
 		}
 	}
+	if hdb := filepath.Join(cfg.HeadscaleDir(), "db.sqlite"); cfg.VPN.Enabled() {
+		if _, err := os.Stat(hdb); err != nil {
+			return nil, fmt.Errorf("VPN database: %w", err)
+		}
+		cp := filepath.Join(tmp, "headscale.sqlite")
+		if err := store.CopyDB(ctx, hdb, cp); err != nil {
+			return nil, fmt.Errorf("VPN database copy: %w", err)
+		}
+		if err := addFile(tw, "headscale/db.sqlite", cp); err != nil {
+			return nil, err
+		}
+	}
 	if err := tw.Close(); err != nil {
 		return nil, err
 	}
@@ -161,6 +176,9 @@ func addTree(tw *tar.Writer, prefix, root string) error {
 		if strings.Contains(filepath.Base(p), ".tmp-") {
 			return nil
 		}
+		if strings.HasPrefix(filepath.Base(p), "db.sqlite") {
+			return nil // Headscale's live database: added as a consistent copy
+		}
 		return addFile(tw, name, p)
 	})
 }
@@ -206,7 +224,7 @@ func Restore(ctx context.Context, cfgPath, password string, r io.Reader, out io.
 	pinHostFields(&bcfg, cur)
 
 	fmt.Fprintln(out, "Stopping services...")
-	_ = exec.Command("systemctl", "stop", "entrypoint-frps.service", "entrypointd.service", "entrypoint-caddy.service").Run()
+	_ = exec.Command("systemctl", append([]string{"stop", "entrypoint-frps.service", "entrypointd.service", "entrypoint-caddy.service"}, install.VPNUnits...)...).Run()
 
 	dd := bcfg.DataDir
 	_ = os.Remove(bcfg.DBPath() + "-wal")
@@ -381,4 +399,5 @@ func pinHostFields(b *config.Config, cur config.Config) {
 	b.FrpsAPI = cur.FrpsAPI
 	b.CaddyBin = cur.CaddyBin
 	b.Testing = cur.Testing
+	b.VPN.Listen = cur.VPN.Listen
 }
