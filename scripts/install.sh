@@ -68,6 +68,13 @@ tar -xzf "$TARBALL" -C "$TMP/x"
 got_version="$(cat "$TMP/x/$NAME/VERSION")"
 [ "$got_version" = "$VERSION" ] || die "tarball contains version $got_version, expected $VERSION"
 
+# Per-IP connection limits are nftables rules; cloud images often lack the tool.
+if ! command -v nft >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
+  echo "Installing nftables (per-IP connection limits)..."
+  { apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nftables; } >/dev/null 2>&1 \
+    || echo "warning: could not install nftables; per-IP connection limits stay off"
+fi
+
 mkdir -p "$OPT/releases"
 DEST="$OPT/releases/$VERSION"
 rm -rf "$DEST.new"

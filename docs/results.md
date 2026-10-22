@@ -262,7 +262,7 @@ Three additions were made to the architecture, within the same four processes:
 | Results of experiments 1–3 (v0.1 scope) in `docs/results.md`, variant B adopted or rejected | Done: B adopted |
 | e2e suites 1–7 and 12 and the v0.1 parts of suites 8, 9 and 11 green in Docker | Done: `make e2e`, suites Install, TLS, Routing, Tunnels, Replicas, State, Revoke, Secrets, Ops, SDK, Resilience |
 | Installation on a real VPS with a real certificate | Done: smoke test below |
-| Host to upstream over VPN works, including WebSocket | In Docker: upstream in a separate private network, WebSocket and SSE (`TestRouting_UpstreamWebSocketSSEAndHTTP2`). On a real VPN: **open**, because the test server has no VPN |
+| Host to upstream over VPN works, including WebSocket | In Docker: upstream in a separate private network, WebSocket and SSE (`TestRouting_UpstreamWebSocketSSEAndHTTP2`). On a real VPN: done 2026-10-22 with the built-in VPN (v0.2.0 smoke test below) |
 | Host to tunnel with two Express replicas works (since 2026-10-18 the `node:http` adapter, see below); stopping one does not interrupt the service | Done: in Docker (tests 1.1, 1.5 and 1.8, SDK matrix) and on the VPS (smoke test below) |
 | A revoked token does not reconnect, and its active session is cut | Done: tests 3.1 and 1.2b |
 | Backup and restore on a fresh container | Done: `TestOps_BackupRestoreFreshContainer`, test 3.3 (new IP) |
@@ -328,3 +328,26 @@ Test releases 9.9.9 built from the same tree with a fault compiled in (only in t
 | Good release | changes during maintenance get 503, a revocation during it works and is kept; after the update the version is 9.9.9, maintenance is off, the tunnel is back and changes work |
 | 3.4: broken migration (rolled back in its transaction) | update exits 1 and rolls back; version 0.1.1, maintenance off, the revocation made during maintenance kept, tunnel back |
 | 3.5: migration applied, the new version crashes after start | the health check sees the systemd restart; rollback to 0.1.1 and schema 1; the revocation made while 9.9.9 ran (only in its database) is replayed from the journal |
+
+## v0.2.0 smoke test on a real server (2026-10-22)
+
+The scratch VPS (2 vCPU AMD EPYC Milan, 4 GB, Debian 13, public DNS at Cloudflare) running the release candidate, upgraded in place from 0.1.0 with the VPN and the panel added.
+
+- **Let's Encrypt staging:** a route with `--acme-staging` got a certificate from `(STAGING) Baloney Bulgur YE2` and answered 200. Production certificates for the panel, the VPN control server and the app hosts were valid throughout.
+- **Restore outside the test environment:** backup, `uninstall --purge` (data, configuration and system users gone), a clean `install.sh` and `entrypoint install`, then `restore`. Routes, VPN machines (including the gateway's own VPN identity) and the panel's passkeys were identical to before; the panel and the VPN control server served their restored certificates; the 8 tokens were invalidated as designed and the restore named the services that need new ones. A second machine was not available, so the same server stood in for a fresh one.
+- **Per-IP limits** needed nftables, which this cloud image lacks; `install.sh` now installs it when apt is available.
+- **The user's scenario:** a "NUC" with three VMs (systemd containers at home behind NAT): Postgres published as `vatro-postgres` with `install-connector.sh vpn --expose 5432`; a web worker serving `vatro.mwdentry.stream` and a fullstack app serving `app.vatro.mwdentry.stream` through tunnels, the app reading Postgres at `vatro-postgres:5432` through `--forward`. Everything set up from the panel (passkey sign-in in Chromium with a virtual authenticator).
+- **Upstream through a real VPN with a WebSocket:** a WebSocket echo published only in the VPN (`entrypoint-connector vpn --expose`) on a machine behind NAT, routed as `ws-vpn.mwdentry.stream` to its VPN address: 5 echoes of 37–39 ms over the internet (client → VPS → VPN → the machine → back).
+
+### Benchmark
+
+HTTPS through Caddy with keep-alive, a 3-byte response, load generated on the same server for 20 s (so Caddy, frps, frpc and the load generator share 2 vCPUs; the numbers compare the paths rather than measure capacity):
+
+| Path | Connections | req/s | p50 | p95 | p99 | Errors |
+| --- | --- | --- | --- | --- | --- | --- |
+| Caddy → 127.0.0.1 upstream | 16 | 3234 | 4.1 ms | 11.4 ms | 20.1 ms | 0 |
+| Caddy → tunnel (frps → frpc → upstream) | 16 | 1913 | 7.1 ms | 19.4 ms | 27.3 ms | 0 |
+| Caddy → 127.0.0.1 upstream | 64 | 3201 | 17.4 ms | 41.5 ms | 57.9 ms | 0 |
+| Caddy → tunnel | 64 | 1943 | 30.3 ms | 61.9 ms | 82.9 ms | 0 |
+
+A tunnel costs about 40% of throughput and roughly doubles latency at this load, mostly the CPU of frps and frpc on the same machine.

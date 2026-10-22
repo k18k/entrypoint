@@ -516,26 +516,26 @@ After each test, artifacts remain: the logs of all containers, the applied Caddy
 
 **v0.1, for personal use:**
 
-- [ ] Results of experiments 1–3 (within the v0.1 scope) recorded in `docs/results.md`, and variant B accepted or rejected
-- [ ] e2e suites 1–7, 12 and the v0.1 parts of suites 8, 9 and 11 green in Docker
-- [ ] Installation on a real VPS with a real certificate
-- [ ] A host to an upstream over VPN works, including a WebSocket
-- [ ] A host to a tunnel with two replicas (node:http adapter) works; stopping one does not interrupt the service
-- [ ] A revoked token does not reconnect, and its active session is dropped
-- [ ] Backup and restore on a fresh container
-- [ ] README with installation and CLI usage
+- [x] Results of experiments 1–3 (within the v0.1 scope) recorded in `docs/results.md`, and variant B accepted or rejected
+- [x] e2e suites 1–7, 12 and the v0.1 parts of suites 8, 9 and 11 green in Docker
+- [x] Installation on a real VPS with a real certificate
+- [x] A host to an upstream over VPN works, including a WebSocket
+- [x] A host to a tunnel with two replicas (node:http adapter) works; stopping one does not interrupt the service
+- [x] A revoked token does not reconnect, and its active session is dropped
+- [x] Backup and restore on a fresh container
+- [x] README with installation and CLI usage
 
 **v0.2.0, first public release:**
 
 - [ ] e2e suites 1–13 green in CI on x86\_64
 - [ ] Suites 1, 4 and 5 green on ARM64
-- [ ] Panel with session protection and CSRF
-- [ ] Update with automatic rollback and maintenance mode
-- [ ] Decision on per-IP connection limits
-- [ ] Smoke test on a real VPS with Let's Encrypt staging
-- [ ] Restore on a fresh machine outside the test environment
-- [ ] Benchmark on the reference machine with the result recorded
-- [ ] Built-in VPN: a machine behind NAT reachable through a route on a real VPS
+- [x] Panel with session protection and CSRF
+- [x] Update with automatic rollback and maintenance mode
+- [x] Decision on per-IP connection limits
+- [x] Smoke test on a real VPS with Let's Encrypt staging
+- [x] Restore on a fresh machine outside the test environment
+- [x] Benchmark on the reference machine with the result recorded
+- [x] Built-in VPN: a machine behind NAT reachable through a route on a real VPS
 
 ## 20. Starting in Claude Code
 
