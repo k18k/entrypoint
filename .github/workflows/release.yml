@@ -3,7 +3,8 @@ name: Release
 # Release from a v<version> tag. Bump the version with `npm run version` (changesets), which
 # keeps package.json, versions.json, install.sh and the SDK in sync; the notes are that
 # version's section of CHANGELOG.md.
-#  1. GitHub release files: gateway (linux_amd64), connector and frpc for all platforms, SHA256SUMS
+#  1. GitHub release files: gateway (linux amd64 and arm64), connector and frpc for all platforms,
+#     SHA256SUMS with its signature
 #  2. SDK as @k18k/entrypoint-sdk with its per-platform connector packages on npm (trusted
 #     publishing, provenance) and GitHub Packages
 #  3. connector image: ghcr.io/k18k/entrypoint-connector

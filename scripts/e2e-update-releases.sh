@@ -6,12 +6,13 @@ set -eu
 DEPS="$1"
 OUT=dist/update
 V=9.9.9
+ARCH="$(go env GOARCH)"
 mkdir -p "$OUT"
 [ -f "$OUT/test.pem" ] || openssl genpkey -algorithm ed25519 -out "$OUT/test.pem" 2>/dev/null
 openssl pkey -in "$OUT/test.pem" -pubout -outform DER | tail -c 32 | base64 > "$OUT/test.pub"
 for variant in good:"" migration:migration health:health; do
   name="${variant%%:*}"; fault="${variant#*:}"
-  d="$OUT/$name"; pkg="entrypoint_${V}_linux_amd64"
+  d="$OUT/$name"; pkg="entrypoint_${V}_linux_${ARCH}"
   rm -rf "$d"; mkdir -p "$d/$pkg/bin"
   (cd gateway && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/k18k/entrypoint/gateway/internal/version.Version=$V -X github.com/k18k/entrypoint/gateway/internal/version.TestFault=$fault" \
     -o "../$d/$pkg/bin/" ./cmd/entrypoint ./cmd/entrypointd ./cmd/entrypoint-panel)

@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -294,7 +295,7 @@ type InstallOptions struct {
 // InstallPrograms runs the real install.sh with the local release package.
 func (e *Env) InstallPrograms(container string) {
 	e.T.Helper()
-	tarball := fmt.Sprintf("/dist/release/entrypoint_%s_linux_amd64.tar.gz", Version)
+	tarball := fmt.Sprintf("/dist/release/entrypoint_%s_linux_%s.tar.gz", Version, runtime.GOARCH)
 	e.MustSh(container, "ENTRYPOINT_TARBALL="+tarball+" sh /scripts/install.sh")
 }
 

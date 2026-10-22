@@ -48,8 +48,7 @@ def assets():
     os.makedirs(dest)
     files = []
     for name in os.listdir(os.path.join(ROOT, "dist", "release")):
-        # Gateway only for linux_amd64 (ARM64 needs testing in v0.2.0).
-        if "_linux_amd64.tar.gz" in name:
+        if name.endswith(("_linux_amd64.tar.gz", "_linux_arm64.tar.gz")):
             files.append((os.path.join(ROOT, "dist", "release", name), name))
     for script in ("install.sh", "install-connector.sh"):
         files.append((os.path.join(ROOT, "scripts", script), script))

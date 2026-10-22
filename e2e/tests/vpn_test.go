@@ -123,7 +123,7 @@ func TestVPN_BackupRestore(t *testing.T) {
 	}
 }
 
-const connectorBin = "/app/node_modules/@k18k/entrypoint-sdk-linux-x64/bin/entrypoint-connector"
+const connectorBin = "/usr/local/bin/entrypoint-connector"
 
 // startVPNConnector runs `entrypoint-connector vpn` in a container with the bundle from a file.
 func startVPNConnector(e *h.Env, container, bundle, args string) {

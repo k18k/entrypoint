@@ -16,7 +16,9 @@ REPO := $(abspath .)
 VERSION := $(shell python3 -c 'import json;print(json.load(open("versions.json"))["entrypoint"])')
 GOFLAGS_BUILD := -trimpath -ldflags "-s -w -X github.com/k18k/entrypoint/gateway/internal/version.Version=$(VERSION)"
 COMPOSE := REPO=$(REPO) docker compose -f e2e/docker-compose.yml
-PLATFORMS ?= linux_amd64
+HOST_PLATFORM := linux_$(shell go env GOARCH)
+PLATFORMS ?= $(HOST_PLATFORM)
+NPM_PLATFORM = $(if $(filter linux_arm64,$(HOST_PLATFORM)),linux-arm64,linux-x64)
 SUITE ?=
 RUN ?=
 SHARDS ?= 4
@@ -75,7 +77,7 @@ sdk: dist
 	done
 	@ls dist/npm
 
-# All release files (linux_amd64 gateway, connector and frpc for all platforms, SDK).
+# All release files (gateway for linux amd64 and arm64, connector and frpc for all platforms, SDK).
 RELEASE_PLATFORMS := linux_amd64 linux_arm64 darwin_amd64 darwin_arm64 windows_amd64
 release:
 	$(MAKE) dist sdk PLATFORMS="$(RELEASE_PLATFORMS)"
@@ -95,10 +97,10 @@ e2e/.run:
 e2e-build: dist sdk e2e/.run
 	mkdir -p dist/e2e
 	cd e2e && CGO_ENABLED=0 go build -o ../dist/e2e/testsrv ./cmd/testsrv
-	scripts/e2e-update-releases.sh dist/deps/linux_amd64
+	scripts/e2e-update-releases.sh dist/deps/$(HOST_PLATFORM)
 	docker build -q -t ep-e2e-gateway e2e/images/gateway >/dev/null
-	docker build -q -t ep-e2e-client --build-arg VERSION=$(VERSION) -f e2e/images/client/Dockerfile . >/dev/null
-	docker build -q -t ep-e2e-client-node22 --build-arg VERSION=$(VERSION) --build-arg NODE_IMAGE=node:22-trixie-slim -f e2e/images/client/Dockerfile . >/dev/null
+	docker build -q -t ep-e2e-client --build-arg VERSION=$(VERSION) --build-arg PLATFORM=$(HOST_PLATFORM) --build-arg NPM_PLATFORM=$(NPM_PLATFORM) -f e2e/images/client/Dockerfile . >/dev/null
+	docker build -q -t ep-e2e-client-node22 --build-arg VERSION=$(VERSION) --build-arg PLATFORM=$(HOST_PLATFORM) --build-arg NPM_PLATFORM=$(NPM_PLATFORM) --build-arg NODE_IMAGE=node:22-trixie-slim -f e2e/images/client/Dockerfile . >/dev/null
 	docker build -q -t ep-e2e-upstream -f e2e/images/upstream/Dockerfile . >/dev/null
 	docker build -q -t ep-e2e-chaos e2e/images/chaos >/dev/null
 	docker build -q -t ep-e2e-connector -f docker/connector/Dockerfile dist/connector >/dev/null
