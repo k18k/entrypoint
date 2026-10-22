@@ -63,6 +63,11 @@ type Limits struct {
 	LoginsPerTokenPerMinute   int `json:"loginsPerTokenPerMinute"`
 	SessionsPerToken          int `json:"sessionsPerToken"`
 	ProxyOpsPerTokenPerMinute int `json:"proxyOpsPerTokenPerMinute"`
+	// Public side, enforced by the kernel (nftables) per client address (IPv6: per /64); 0 turns a limit off.
+	PerIPConnections       int `json:"perIPConnections"`       // concurrent on 80/443
+	PerIPNewConnsPerSecond int `json:"perIPNewConnsPerSecond"` // new connections on 80/443 and the tunnel port
+	// Concurrent connections from Caddy to one service (its replicas through frps).
+	ConnectionsPerService int `json:"connectionsPerService"`
 }
 
 type PortPool struct {
@@ -127,7 +132,8 @@ func Default() Config {
 		PortPool:         PortPool{Start: 20000, End: 29999},
 		ACME:             ACME{CA: LetsEncryptProd, StagingCA: LetsEncryptStaging},
 		Limits: Limits{ReplicasPerToken: 10, FailedLoginsPerMinute: 10, OnDemandCertsPerHour: 10,
-			LoginsPerTokenPerMinute: 30, SessionsPerToken: 20, ProxyOpsPerTokenPerMinute: 60},
+			LoginsPerTokenPerMinute: 30, SessionsPerToken: 20, ProxyOpsPerTokenPerMinute: 60,
+			PerIPConnections: 256, PerIPNewConnsPerSecond: 100, ConnectionsPerService: 1024},
 		HeartbeatTimeout: 40,
 		DriftInterval:    Duration{30 * time.Second},
 		VPN:              VPN{Listen: "127.0.0.1:7600"},

@@ -272,6 +272,7 @@ Restore **invalidates all restored tokens**, because a backup does not know abou
 - The frps plugin allows only `tcp` proxies, and always overwrites the group, group key and port with the service values from the token. The remaining fields are checked against an allowlist.
 - A wildcard route (`*.example.com`) does not issue certificates by itself: names are given with `--tls-name a.example.com` (repeatable). On-the-fly certificates for any subdomain are an explicit choice (`--tls-on-demand`) with a limit of 10 new names per hour, so as not to exhaust the Let's Encrypt limit.
 - A token holder is a trusted operator of their own service: a modified client can disable the health check, but harms only its own service.
+- Per-IP limits on the public side are kernel rules (nftables, its own table `inet entrypoint`): 256 concurrent connections per address on 80/443 (IPv6 per /64) and 100 new connections per second, plus 1024 concurrent requests per service in Caddy. Change them with `--per-ip-connections`, `--per-ip-rate`, `--service-connections` (0 = off). No local limit protects against saturating the server's link.
 
 ## SDK development
 

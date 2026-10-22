@@ -41,7 +41,7 @@ func TestCaddyValidates(t *testing.T) {
 	dir := t.TempDir()
 	o := CaddyOptions{AdminSocket: filepath.Join(dir, "a.sock"), StorageDir: filepath.Join(dir, "st"), AskEndpoint: "http://127.0.0.1:7400/tls/ask",
 		ACME: config.ACME{Email: "a@example.com", CA: config.LetsEncryptProd, StagingCA: config.LetsEncryptStaging},
-		VPN:  config.VPN{Name: "vpn.example.com", Listen: "127.0.0.1:7600"}}
+		VPN:  config.VPN{Name: "vpn.example.com", Listen: "127.0.0.1:7600"}, ServiceConns: 1024}
 	b, err := Caddy(s, o)
 	if err != nil {
 		t.Fatal(err)

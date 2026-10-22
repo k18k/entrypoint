@@ -325,6 +325,15 @@ func Install(o Options) error {
 		}
 	}
 
+	nft, _ := firewallUnit()
+	if nft != "" {
+		if err := writeOwned(firewallFile, []byte(FirewallRules(cfg)), 0o644, "", ""); err != nil {
+			return err
+		}
+	} else {
+		fmt.Fprintln(out, "warning: nftables (nft) is not installed, so per-IP connection limits are off; install it: apt install nftables")
+	}
+
 	if err := writeUnits(cfg, o.ConfigPath); err != nil {
 		return err
 	}
@@ -343,6 +352,9 @@ func Install(o Options) error {
 	}
 	if cfg.Panel.Enabled() {
 		start = append(start, PanelUnit)
+	}
+	if nft != "" {
+		start = append(start, FirewallUnit)
 	}
 	if err := run("systemctl", append([]string{"enable"}, start...)...); err != nil {
 		return err

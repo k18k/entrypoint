@@ -43,6 +43,9 @@ func cmdInstall(args []string) error {
 	renewInterval := fs.Duration("test-renew-interval", 0, "tests only: Caddy renewal check interval")
 	vpnName := fs.String("vpn-name", "", "set up the built-in VPN with its control server at this DNS name, e.g. vpn.example.com")
 	panelName := fs.String("panel-name", "", "serve the web panel at this DNS name, e.g. panel.example.com")
+	perIP := fs.Int("per-ip-connections", def.Limits.PerIPConnections, "concurrent connections per client address on 80/443 (IPv6: per /64; 0 = no limit)")
+	perIPRate := fs.Int("per-ip-rate", def.Limits.PerIPNewConnsPerSecond, "new connections per second per client address on 80/443 and the tunnel port (0 = no limit)")
+	svcConns := fs.Int("service-connections", def.Limits.ConnectionsPerService, "concurrent requests to one service; more get 502 (0 = no limit)")
 	noStart := fs.Bool("no-start", false, "do not start the services")
 	if _, err := parse(fs, args); err != nil {
 		return err
@@ -94,6 +97,15 @@ func cmdInstall(args []string) error {
 	}
 	if set["test-acme-profile"] {
 		cfg.Testing.ACMEProfile = *acmeProfile
+	}
+	if set["per-ip-connections"] {
+		cfg.Limits.PerIPConnections = *perIP
+	}
+	if set["per-ip-rate"] {
+		cfg.Limits.PerIPNewConnsPerSecond = *perIPRate
+	}
+	if set["service-connections"] {
+		cfg.Limits.ConnectionsPerService = *svcConns
 	}
 	if set["vpn-name"] {
 		cfg.VPN.Name = strings.ToLower(*vpnName)

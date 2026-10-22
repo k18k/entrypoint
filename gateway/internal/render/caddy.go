@@ -24,17 +24,20 @@ type CaddyOptions struct {
 	Testing     config.Testing
 	VPN         config.VPN
 	Panel       config.Panel
+	// ServiceConns caps concurrent connections to one service (0: no cap).
+	ServiceConns int
 }
 
 func OptionsFrom(c config.Config) CaddyOptions {
 	return CaddyOptions{
-		AdminSocket: c.CaddyAdminSocket,
-		StorageDir:  c.CaddyStorage(),
-		AskEndpoint: "http://" + c.PluginListen + "/tls/ask",
-		ACME:        c.ACME,
-		Testing:     c.Testing,
-		VPN:         c.VPN,
-		Panel:       c.Panel,
+		AdminSocket:  c.CaddyAdminSocket,
+		StorageDir:   c.CaddyStorage(),
+		AskEndpoint:  "http://" + c.PluginListen + "/tls/ask",
+		ACME:         c.ACME,
+		Testing:      c.Testing,
+		VPN:          c.VPN,
+		Panel:        c.Panel,
+		ServiceConns: c.Limits.ConnectionsPerService,
 	}
 }
 
@@ -61,15 +64,18 @@ func matchPrefix(p string) []string {
 	return []string{p, p + "/*"}
 }
 
-func routeHandlers(r spec.Route, s *spec.Spec) []any {
+func routeHandlers(r spec.Route, s *spec.Spec, o CaddyOptions) []any {
 	hs := []any{obj{"handler": "request_body", "max_size": r.EffectiveMaxBody()}}
 	if r.StripPrefix {
 		hs = append(hs, obj{"handler": "rewrite", "strip_path_prefix": r.Prefix})
 	}
 	dial := r.Upstream
+	var maxConns int
 	if r.Service != "" {
 		svc := s.ServiceByName(r.Service)
 		dial = fmt.Sprintf("127.0.0.1:%d", svc.Port)
+		// One service cannot take all of frps: further requests wait for a free connection.
+		maxConns = o.ServiceConns
 	}
 	rp := obj{
 		"handler":   "reverse_proxy",
@@ -85,6 +91,9 @@ func routeHandlers(r spec.Route, s *spec.Spec) []any {
 		// No trusted proxy sits in front of Caddy: client-supplied client-address headers are removed.
 		// Caddy sets X-Forwarded-For/Proto/Host itself.
 		"headers": obj{"request": obj{"delete": []string{"X-Real-IP", "Forwarded", "X-Client-IP", "True-Client-IP", "CF-Connecting-IP"}}},
+	}
+	if maxConns > 0 {
+		rp["upstreams"] = []any{obj{"dial": dial, "max_requests": maxConns}}
 	}
 	return append(hs, rp)
 }
@@ -149,7 +158,7 @@ func Caddy(s *spec.Spec, o CaddyOptions) ([]byte, error) {
 		})
 		sub := []any{}
 		for _, r := range rs {
-			rt := obj{"handle": routeHandlers(r, s), "terminal": true}
+			rt := obj{"handle": routeHandlers(r, s, o), "terminal": true}
 			if r.Prefix != "/" {
 				rt["match"] = []any{obj{"path": matchPrefix(r.Prefix)}}
 			}

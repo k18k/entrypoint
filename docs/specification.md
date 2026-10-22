@@ -361,7 +361,18 @@ Secrets never reach the logs, and basic limits apply from v0.1.
 | Request body size | 50 MB per route |
 | Request header size | Caddy default limit |
 
-Per-IP connection limits on the public side need a decision before v0.2.0: a Caddy plugin or operating system firewall rules. Local limits do not protect against link saturation.
+**Limits from v0.2.0** (decision for issues #2 and #8):
+
+| Limit | Default value | Enforced by | Over the limit |
+| --- | --- | --- | --- |
+| Concurrent connections per client address on 80/443 (IPv6: per /64) | 256 | kernel, nftables | TCP reset |
+| New connections per client address on 80/443 and the tunnel port | 100/s, burst 200 | kernel, nftables | SYN dropped (the client retries) |
+| Concurrent requests to one service | 1024 | Caddy (`max_requests` of the service upstream) | 502 at once, no queue in Caddy |
+| Tunnel logins, sessions and proxy operations per token | 30/min, 20, 60/min | frps plugin | `ep:rate_limited` |
+
+The per-IP limits are kernel rules rather than a Caddy plugin, which would need a custom Caddy build instead of the official binary. The installer writes them to `/etc/entrypoint/firewall.nft`, in a table of their own (`inet entrypoint`) that only drops what is over a limit and leaves other firewall rules alone, and `entrypoint-firewall.service` loads them at boot. Without nftables the installer warns and the limits are off. All limits are install options (`--per-ip-connections`, `--per-ip-rate`, `--service-connections`; 0 turns one off).
+
+A shared gateway shares its resources: these limits reduce the impact of one client or service on the others but are not full isolation, and no local limit protects against saturating the link. Measured in the Limits suite: one address opening 300 connections keeps at most the configured number while another service keeps 0 errors and its p95 latency.
 
 ## 15. Later stages
 

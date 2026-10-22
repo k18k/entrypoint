@@ -35,6 +35,7 @@ var UnitNames = []string{
 	"entrypoint-headscale.service",
 	"entrypoint-tailscaled.service",
 	"entrypoint-panel.service",
+	FirewallUnit,
 }
 
 // PanelUnit runs the web panel (config.Panel).
@@ -50,6 +51,10 @@ func units(cfg config.Config, configPath string) map[string]string {
 		for k, v := range vpnUnits(cfg) {
 			u[k] = v
 		}
+	}
+	if _, unit := firewallUnit(); unit != "" {
+		u["entrypoint.target"] = strings.Replace(u["entrypoint.target"], "entrypoint-frps-reload.path", "entrypoint-frps-reload.path "+FirewallUnit, 1)
+		u[FirewallUnit] = unit
 	}
 	if cfg.Panel.Enabled() {
 		u["entrypoint.target"] = strings.Replace(u["entrypoint.target"], "entrypoint-frps-reload.path", "entrypoint-frps-reload.path "+PanelUnit, 1)

@@ -8,7 +8,7 @@
 #   make e2e             e2e tests of our code in Docker (SHARDS=4 parallel shards)
 #   make e2e-experiments experiments: Caddy and frp behavior (after changing versions.json)
 #   make e2e SUITE=Routing   one suite (names: Smoke Install TLS Routing Tunnels
-#                        Replicas State Revoke Ops SDK Resilience Secrets VPN Panel)
+#                        Replicas State Revoke Ops SDK Resilience Secrets VPN Panel Limits)
 #   make e2e-up / e2e-down   environment without running tests
 
 SHELL := /bin/bash
