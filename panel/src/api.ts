@@ -48,6 +48,7 @@ export type Status = {
   frpsOk: boolean;
   caddyOk: boolean;
   warnings: string[] | null;
+  maintenance?: { since: string; reason: string };
 };
 
 export type VPNNode = { id: number; name: string; addresses: string[]; online: boolean; lastSeen?: string };

@@ -18,6 +18,7 @@ import (
 
 	"github.com/k18k/entrypoint/gateway/internal/api"
 	"github.com/k18k/entrypoint/gateway/internal/config"
+	"github.com/k18k/entrypoint/gateway/internal/maintenance"
 	"github.com/k18k/entrypoint/gateway/internal/spec"
 	"github.com/k18k/entrypoint/gateway/internal/store"
 	"github.com/k18k/entrypoint/gateway/internal/token"
@@ -82,7 +83,20 @@ func (d *Daemon) apiHandler() http.Handler {
 	m.HandleFunc("DELETE /v1/vpn/nodes/{id}", d.hVPNNodeRm)
 	m.HandleFunc("GET /v1/ca", d.hCA)
 	m.HandleFunc("POST /v1/ca/rotate", d.hCARotate)
-	return m
+	return d.maintenanceGuard(m)
+}
+
+// maintenanceGuard refuses every change during an update, except token revocations.
+func (d *Daemon) maintenanceGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && !strings.HasSuffix(r.URL.Path, "/revoke") {
+			if m := maintenance.Get(d.cfg); m != nil {
+				fail(w, 503, fmt.Errorf("maintenance mode (%s): changes are blocked until it ends; token revocations still work", m.Reason))
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func reply(w http.ResponseWriter, code int, v any) {
@@ -241,6 +255,7 @@ func (d *Daemon) hStatus(w http.ResponseWriter, r *http.Request) {
 		LastApplied: last,
 		AuthzRev:    d.authz.Revision(),
 		Warnings:    []string{},
+		Maintenance: maintenance.Get(d.cfg),
 	}
 	if head.Num > 0 {
 		st.Head = head
@@ -592,6 +607,12 @@ func (d *Daemon) hTokenRevoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.authz.Revoke(id)
+	// During an update the database may be rolled back; the journal brings the revocation back.
+	if maintenance.Get(d.cfg) != nil {
+		if err := maintenance.Record(d.cfg, maintenance.Revocation{TokenID: id, Reason: reason, At: time.Now().UTC()}); err != nil {
+			d.log.Error("revocation not journaled for the update", "token_id", id, "error", err)
+		}
+	}
 	d.log.Warn("token revoked", "token_id", id)
 	reply(w, 200, map[string]any{"revoked": id, "revokedAt": time.Now().UTC()})
 }

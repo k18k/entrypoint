@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/k18k/entrypoint/gateway/internal/maintenance"
 	"github.com/k18k/entrypoint/gateway/internal/store"
 )
 
@@ -80,17 +81,18 @@ type ComponentInfo struct {
 }
 
 type Status struct {
-	Version     string          `json:"version"`
-	GatewayName string          `json:"gatewayName"`
-	TunnelPort  int             `json:"tunnelPort"`
-	Head        *store.Revision `json:"head"`
-	LastApplied *store.Revision `json:"lastApplied"`
-	Components  []ComponentInfo `json:"components"`
-	AuthzRev    int64           `json:"authzRevision"`
-	Services    []ServiceInfo   `json:"services"`
-	FrpsOK      bool            `json:"frpsOk"`
-	CaddyOK     bool            `json:"caddyOk"`
-	Warnings    []string        `json:"warnings"`
+	Version     string             `json:"version"`
+	GatewayName string             `json:"gatewayName"`
+	TunnelPort  int                `json:"tunnelPort"`
+	Head        *store.Revision    `json:"head"`
+	LastApplied *store.Revision    `json:"lastApplied"`
+	Components  []ComponentInfo    `json:"components"`
+	AuthzRev    int64              `json:"authzRevision"`
+	Services    []ServiceInfo      `json:"services"`
+	FrpsOK      bool               `json:"frpsOk"`
+	CaddyOK     bool               `json:"caddyOk"`
+	Warnings    []string           `json:"warnings"`
+	Maintenance *maintenance.State `json:"maintenance,omitempty"`
 }
 
 type CAInfo struct {

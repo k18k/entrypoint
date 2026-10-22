@@ -42,7 +42,8 @@ Usage:
   entrypoint backup [-o <file>]
   entrypoint restore <file>
   entrypoint logs <entrypointd|caddy|frps|headscale|tailscaled|panel> [-f] [-n <lines>]
-  entrypoint update
+  entrypoint update [--version <v>] [--health-time 60s]
+  entrypoint maintenance on|off
   entrypoint uninstall [--purge] [--yes]
   entrypoint version
 
@@ -111,6 +112,8 @@ func dispatch(cmd string, args []string) error {
 		return cmdLogs(args)
 	case "update":
 		return cmdUpdate(args)
+	case "maintenance":
+		return cmdMaintenance(args)
 	case "version", "--version", "-v":
 		fmt.Println(version.Version)
 		return nil

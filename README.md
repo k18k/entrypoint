@@ -238,6 +238,8 @@ Revocations go to a separate append-only log. Neither a revision rollback nor a 
 | `entrypoint dns check` | Required DNS records and their current state (the gateway does not change DNS) |
 | `entrypoint ca status`, `ca rotate start\|switch\|finish` | The private tunnel CA and its three-step rotation |
 | `entrypoint revision list`, `revision show <n>` | Change history and apply errors |
+| `entrypoint update` | Update to the latest release (`--version` for another): checks its signature, maintenance mode, migrations, restart, 60 s health check, automatic rollback |
+| `entrypoint maintenance on\|off` | Block configuration changes by hand (token revocations still work) |
 | `entrypoint backup -o file.age` | Password-encrypted backup (database, CA, certificates, configuration, VPN state) |
 | `entrypoint restore file.age` | Restore onto an installed gateway of the same version |
 | `entrypoint logs entrypointd\|caddy\|frps\|headscale\|tailscaled [-f]` | Logs from journald |
@@ -301,12 +303,10 @@ make e2e RUN='^TestOps_DNSCheck$' SHARDS=1 KEEP=1   # one test, the environment 
 
 Each copy of the environment has its own compose project and the subnets `10.77.N.0/24` and `10.78.N.0/24`. Tests are assigned to copies based on timings from the previous run (`e2e/durations.json`, updated automatically). The artifacts of each test (logs, Caddy and frps configurations, database state) go to `e2e/artifacts/`.
 
-## What is not in v0.1
+## What is not in v0.2
 
-- Fastify and Hono adapters, automatic updates with rollback and maintenance mode (v0.2.0).
-- Full failure tests, ARM64 tests, a performance benchmark (v0.2.0).
-- Per-IP connection limits on the public side (decision before v0.2.0).
 - Static site releases (v0.3), TCP/UDP forwarding and TURN (v0.4).
+- Access rules between VPN machines (every machine can reach every other one).
 - Wildcard certificates via DNS-01, OIDC, HA (v1).
 - The connector for Linux arm64, macOS and Windows is in the release, but has no e2e tests.
 

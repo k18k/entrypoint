@@ -8,7 +8,7 @@
 #   make e2e             e2e tests of our code in Docker (SHARDS=4 parallel shards)
 #   make e2e-experiments experiments: Caddy and frp behavior (after changing versions.json)
 #   make e2e SUITE=Routing   one suite (names: Smoke Install TLS Routing Tunnels
-#                        Replicas State Revoke Ops SDK Resilience Secrets VPN Panel Limits)
+#                        Replicas State Revoke Ops SDK Resilience Secrets VPN Panel Limits Update)
 #   make e2e-up / e2e-down   environment without running tests
 
 SHELL := /bin/bash
@@ -95,6 +95,7 @@ e2e/.run:
 e2e-build: dist sdk e2e/.run
 	mkdir -p dist/e2e
 	cd e2e && CGO_ENABLED=0 go build -o ../dist/e2e/testsrv ./cmd/testsrv
+	scripts/e2e-update-releases.sh dist/deps/linux_amd64
 	docker build -q -t ep-e2e-gateway e2e/images/gateway >/dev/null
 	docker build -q -t ep-e2e-client --build-arg VERSION=$(VERSION) -f e2e/images/client/Dockerfile . >/dev/null
 	docker build -q -t ep-e2e-client-node22 --build-arg VERSION=$(VERSION) --build-arg NODE_IMAGE=node:22-trixie-slim -f e2e/images/client/Dockerfile . >/dev/null

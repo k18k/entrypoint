@@ -35,6 +35,13 @@ export function Overview({ go }: { go: (p: string) => void }) {
           <small className="muted">tunnel port {s.tunnelPort}</small>
         </div>
       </div>
+      {s.maintenance && (
+        <Card title="Maintenance mode">
+          <p className="warn-text">
+            {s.maintenance.reason} since {new Date(s.maintenance.since).toLocaleTimeString()}: configuration changes are blocked; token revocations still work.
+          </p>
+        </Card>
+      )}
       {s.warnings && s.warnings.length > 0 && (
         <Card title="Warnings">
           <ul className="list">

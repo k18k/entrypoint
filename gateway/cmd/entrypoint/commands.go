@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -15,7 +16,9 @@ import (
 	"github.com/k18k/entrypoint/gateway/internal/api"
 	"github.com/k18k/entrypoint/gateway/internal/config"
 	"github.com/k18k/entrypoint/gateway/internal/install"
+	"github.com/k18k/entrypoint/gateway/internal/maintenance"
 	"github.com/k18k/entrypoint/gateway/internal/store"
+	"github.com/k18k/entrypoint/gateway/internal/update"
 )
 
 type multi []string
@@ -41,6 +44,8 @@ func cmdInstall(args []string) error {
 	applyDelay := fs.Duration("test-apply-delay", 0, "tests only: pause while applying a revision")
 	acmeProfile := fs.String("test-acme-profile", "", "tests only: ACME profile")
 	renewInterval := fs.Duration("test-renew-interval", 0, "tests only: Caddy renewal check interval")
+	var releaseKeys multi
+	fs.Var(&releaseKeys, "test-release-key", "tests only: an extra trusted release signing key (base64 Ed25519)")
 	vpnName := fs.String("vpn-name", "", "set up the built-in VPN with its control server at this DNS name, e.g. vpn.example.com")
 	panelName := fs.String("panel-name", "", "serve the web panel at this DNS name, e.g. panel.example.com")
 	perIP := fs.Int("per-ip-connections", def.Limits.PerIPConnections, "concurrent connections per client address on 80/443 (IPv6: per /64; 0 = no limit)")
@@ -112,6 +117,9 @@ func cmdInstall(args []string) error {
 	}
 	if set["panel-name"] {
 		cfg.Panel.Name = strings.ToLower(*panelName)
+	}
+	if set["test-release-key"] {
+		cfg.Testing.ReleaseKeys = releaseKeys
 	}
 	if set["test-renew-interval"] {
 		cfg.Testing.RenewInterval = config.Duration{Duration: *renewInterval}
@@ -212,6 +220,9 @@ func cmdStatus(args []string) error {
 		return exitError{1, ""}
 	}
 	fmt.Printf("Version: %s\n", st.Version)
+	if st.Maintenance != nil {
+		fmt.Printf("MAINTENANCE MODE since %s (%s): configuration changes are blocked\n", st.Maintenance.Since.Local().Format("15:04:05"), st.Maintenance.Reason)
+	}
 	if st.LastApplied != nil {
 		fmt.Printf("Revision: %d applied", st.LastApplied.Num)
 		for _, c := range st.Components {
@@ -690,10 +701,44 @@ func cmdLogs(args []string) error {
 }
 
 func cmdUpdate(args []string) error {
-	fmt.Println(`In v0.1 updates are manual (automatic rollback arrives in v0.2.0):
-  1. sudo entrypoint backup -o entrypoint-before-update.age
-  2. curl -fsSL https://raw.githubusercontent.com/k18k/entrypoint/master/scripts/install.sh | sudo ENTRYPOINT_VERSION=<version> sh
-  3. sudo entrypoint install
-  4. sudo entrypoint status`)
-	return exitError{1, ""}
+	fs := flag.NewFlagSet("update", flag.ContinueOnError)
+	ver := fs.String("version", "", "install this version instead of the latest release")
+	from := fs.String("from", "", "a directory with the release files (SHA256SUMS, SHA256SUMS.sig, the tarball) instead of GitHub")
+	health := fs.Duration("health-time", 60*time.Second, "how long the new version must stay healthy before the update counts")
+	pause := fs.Duration("test-pause", 0, "tests only: pause after maintenance mode starts")
+	if _, err := parse(fs, args); err != nil {
+		return err
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	cx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+	return update.Run(cx, update.Options{Config: cfg, ConfigPath: configPath(), From: *from, Version: *ver, HealthTime: *health, TestPause: *pause, Out: os.Stdout})
+}
+
+func cmdMaintenance(args []string) error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	if os.Geteuid() != 0 {
+		return exitError{1, "maintenance mode requires root (sudo)"}
+	}
+	switch {
+	case len(args) == 1 && args[0] == "on":
+		if err := maintenance.Enable(cfg, "manual"); err != nil {
+			return err
+		}
+		fmt.Println("Maintenance mode on: configuration changes are blocked, token revocations still work.")
+	case len(args) == 1 && args[0] == "off":
+		if err := maintenance.Disable(cfg); err != nil {
+			return err
+		}
+		fmt.Println("Maintenance mode off.")
+	default:
+		return exitError{2, "usage: entrypoint maintenance on|off"}
+	}
+	return nil
 }

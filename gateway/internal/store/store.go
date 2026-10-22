@@ -15,6 +15,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/k18k/entrypoint/gateway/internal/spec"
+	"github.com/k18k/entrypoint/gateway/internal/version"
 )
 
 // Revision statuses.
@@ -88,9 +89,9 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(schema); err != nil {
+	if err := migrate(db); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("database schema: %w", err)
+		return nil, err
 	}
 	for _, f := range []string{path, path + "-wal", path + "-shm"} {
 		_ = os.Chmod(f, 0o600)
@@ -99,6 +100,55 @@ func Open(path string) (*Store, error) {
 }
 
 func (s *Store) Close() error { return s.db.Close() }
+
+// migrations bring the schema forward, never back: migration i leaves PRAGMA user_version at i+1.
+// A new version only appends to this list.
+var migrations = []string{
+	schema, // 1: the v0.1 schema (existing databases have version 0 and these tables already)
+}
+
+// migrationList is migrations plus, in test builds, one more that fails or succeeds.
+func migrationList() []string {
+	switch version.TestFault {
+	case "migration":
+		return append(migrations[:len(migrations):len(migrations)], `INSERT INTO no_such_table VALUES (1)`)
+	case "health":
+		return append(migrations[:len(migrations):len(migrations)], `CREATE TABLE IF NOT EXISTS test_fault(x INTEGER)`)
+	}
+	return migrations
+}
+
+// SchemaVersion is the database schema this build writes.
+func SchemaVersion() int { return len(migrationList()) }
+
+// migrate applies the missing migrations in one transaction.
+func migrate(db *sql.DB) error {
+	migrations := migrationList()
+	var v int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
+		return fmt.Errorf("database schema version: %w", err)
+	}
+	if v > len(migrations) {
+		return fmt.Errorf("the database has schema %d, newer than this version of entrypoint knows (%d)", v, len(migrations))
+	}
+	if v == len(migrations) {
+		return nil
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for i := v; i < len(migrations); i++ {
+		if _, err := tx.Exec(migrations[i]); err != nil {
+			return fmt.Errorf("database migration %d: %w", i+1, err)
+		}
+	}
+	if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, len(migrations))); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
 
 func now() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 

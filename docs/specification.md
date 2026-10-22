@@ -330,6 +330,13 @@ Each process runs as a separate system user. Caddy gets only the permission for 
 
 A frps restart drops the tunnels and a Caddy restart drops all connections, so an update is a short maintenance window. In v0.1 the update is manual: backup, then install the new version.
 
+How v0.2.0 implements it (`entrypoint update [--version <v>] [--health-time 60s]`):
+
+- **Signature.** Each release's `SHA256SUMS` is signed with Ed25519 (`SHA256SUMS.sig`) by the release workflow, from the `RELEASE_SIGNING_KEY` secret. `entrypoint update` checks it against the public key built into the program, and `install.sh` checks it with openssl; a release without a valid signature is refused before anything changes.
+- **Maintenance mode** is a state file read by entrypointd on every request: any change except a token revocation gets 503. Revocations are also written to a journal that a rollback replays into the restored database before frps accepts logins again. `entrypoint maintenance on|off` controls it by hand, and `status` and the panel show it.
+- **Migrations** are numbered SQL steps applied in one transaction (`PRAGMA user_version`); a version refuses a database newer than it knows, so the only way back is the copy from step 3. The new version runs them (`entrypointd --migrate`) as the daemon's user before `current` switches.
+- **Restart and health.** The new version's `entrypoint install` rewrites the units and restarts in order; then for the health time every unit must stay active without a systemd restart, and entrypointd must answer with Caddy and frps reachable.
+
 **Backup.** `entrypoint backup` creates a password-encrypted archive: a copy of SQLite made without stopping the services, the private CA with its key, the Caddy storage and a version manifest; from v0.3 also the site releases. Logs are not part of the backup.
 
 **Restore:**

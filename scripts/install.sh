@@ -27,12 +27,25 @@ NAME="entrypoint_${VERSION}_linux_${ARCH}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
+# Official release signing key (Ed25519); entrypoint update checks the same key.
+RELEASE_KEY="-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEA8reBNWMRtX615Ph1b1Z0LXRD9jvCjqgO4gOFq+N8eqk=
+-----END PUBLIC KEY-----"
+
 if [ -z "$TARBALL" ]; then
   command -v curl >/dev/null 2>&1 || die "curl is missing"
+  command -v openssl >/dev/null 2>&1 || die "openssl is missing (needed to verify the release signature)"
   BASE="https://github.com/${REPO}/releases/download/v${VERSION}"
   echo "Downloading ${NAME}.tar.gz..."
   curl -fsSL -o "$TMP/$NAME.tar.gz" "$BASE/$NAME.tar.gz"
-  curl -fsSL -o "$TMP/$NAME.tar.gz.sha256" "$BASE/$NAME.tar.gz.sha256"
+  curl -fsSL -o "$TMP/SHA256SUMS" "$BASE/SHA256SUMS"
+  curl -fsSL -o "$TMP/SHA256SUMS.sig" "$BASE/SHA256SUMS.sig"
+  printf '%s\n' "$RELEASE_KEY" > "$TMP/release.pub"
+  base64 -d < "$TMP/SHA256SUMS.sig" > "$TMP/SHA256SUMS.raw" 2>/dev/null || die "SHA256SUMS.sig is not base64"
+  openssl pkeyutl -verify -pubin -inkey "$TMP/release.pub" -rawin -in "$TMP/SHA256SUMS" -sigfile "$TMP/SHA256SUMS.raw" >/dev/null 2>&1 \
+    || die "the release signature does not match the Entrypoint release key"
+  echo "Release signature verified."
+  grep " \*\{0,1\}$NAME.tar.gz\$" "$TMP/SHA256SUMS" > "$TMP/$NAME.tar.gz.sha256" || die "$NAME.tar.gz is not in SHA256SUMS"
   TARBALL="$TMP/$NAME.tar.gz"
   SUMFILE="$TMP/$NAME.tar.gz.sha256"
 else

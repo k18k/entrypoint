@@ -2,8 +2,10 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/k18k/entrypoint/gateway/internal/spec"
@@ -63,5 +65,21 @@ func TestRevisionsPortsRevocations(t *testing.T) {
 	rv, _ := st.RevokedSet(ctx)
 	if !rv["t1"] {
 		t.Fatal("revocation missing")
+	}
+}
+
+func TestMigrationsForwardOnly(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "db")
+	st, err := Open(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+	// A newer schema than this build knows is refused, never "downgraded".
+	db, _ := sql.Open("sqlite", "file:"+p)
+	db.Exec(`PRAGMA user_version = 99`)
+	db.Close()
+	if _, err := Open(p); err == nil || !strings.Contains(err.Error(), "newer") {
+		t.Fatalf("newer schema accepted: %v", err)
 	}
 }

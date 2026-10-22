@@ -318,3 +318,13 @@ All cases run on every commit (they were experiments in v0.1). Measured in Docke
 ## v0.2.0: per-IP limits (2026-10-22)
 
 One address opening 300 connections to service A with a limit of 40: at most 40 stay open, the rest get a TCP reset (the new-connection rate rule dropped another 483 SYNs); service B: 0 errors of 572 and p95 2 ms, the same as its baseline; service A keeps answering other clients.
+
+## v0.2.0: update with rollback, tests 3.4 and 3.5 (2026-10-22)
+
+Test releases 9.9.9 built from the same tree with a fault compiled in (only in test builds):
+
+| Case | Result |
+| --- | --- |
+| Good release | changes during maintenance get 503, a revocation during it works and is kept; after the update the version is 9.9.9, maintenance is off, the tunnel is back and changes work |
+| 3.4: broken migration (rolled back in its transaction) | update exits 1 and rolls back; version 0.1.1, maintenance off, the revocation made during maintenance kept, tunnel back |
+| 3.5: migration applied, the new version crashes after start | the health check sees the systemd restart; rollback to 0.1.1 and schema 1; the revocation made while 9.9.9 ran (only in its database) is replayed from the journal |

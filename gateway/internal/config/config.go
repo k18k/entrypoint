@@ -97,6 +97,7 @@ type Testing struct {
 	ApplyDelay    Duration `json:"applyDelay,omitempty"`    // pause after writing the snapshot, before Caddy
 	ACMEProfile   string   `json:"acmeProfile,omitempty"`   // ACME profile (short-lived certificates in renewal tests)
 	RenewInterval Duration `json:"renewInterval,omitempty"` // how often Caddy checks for renewals
+	ReleaseKeys   []string `json:"releaseKeys,omitempty"`   // extra trusted release signing keys (update tests)
 }
 
 type Config struct {
