@@ -300,3 +300,21 @@ At the request of the specification owner, the adapter `@k18k/entrypoint/express
 | [#1](https://github.com/k18k/entrypoint/issues/1) Revocation after an entrypointd crash | None in code: the revocation is durable before the command returns, the snapshot after restart excludes revoked tokens, Ping re-checks every session, the systemd socket keeps queued Pings. Guarantee written into spec sections 4 and 6. | `TestRevoke_CrashRightAfterRevoke`: revoke, then immediately `kill -9 entrypointd`, with a modified client holding a streaming connection. Stream closed after 8.8 s, no reconnect, re-login refused with `ep:revoked`. |
 | [#2](https://github.com/k18k/entrypoint/issues/2) Resource isolation between tokens | Per-token limits enforced by the plugin, also for valid tokens: 30 logins per minute, 20 live sessions, 60 proxy registrations per minute. frps `maxPoolCount` 10 → 2. Per-service bandwidth and connection limits are left for v0.2.0, with the decision on per-IP limits. | `TestTunnels_TokenAbuseIsolation`: 45 login and registration cycles of token A in 13.7 s, 16 rate-limited; service B 0 errors of 604, p95 2 ms (baseline 2 ms). Thresholds set before measuring: 0 errors, p95 ≤ baseline + 200 ms. |
 | [#3](https://github.com/k18k/entrypoint/issues/3) ACME consent vs. wildcard routes | A wildcard route alone authorizes no certificates. Names via `--tls-name`, obtained up front. Any-subdomain on-demand only with `--tls-on-demand` (10 new names per hour). Spec section 9 updated. | `TestTLS_NoCertificateWithoutRoute` (Pebble): 10 random SNIs under the wildcard got 0 certificates, with no ACME activity in Caddy logs. The explicit name and the opted-in on-demand name got certificates. |
+
+## v0.2.0: failure tests, suite 11 (2026-10-22)
+
+All cases run on every commit (they were experiments in v0.1). Measured in Docker, under load of 2 workers every 50 ms:
+
+| Failure | Result |
+| --- | --- |
+| `kill -9` of entrypointd | 0 errors of 758 public requests; the API answers again after 391 ms (systemd restart); a configuration change and a new tunnel login work afterwards |
+| frps restart | every tunnel drops; the last error 2.7 s after the restart, connectors log in again on their own |
+| 50 stuck and 20 aborted API clients on the API socket | the CLI answers in 109 ms; a change applies; truncated requests change nothing |
+| Caddy restart | the WebSocket drops at once, a new one connects after 314 ms; the last HTTP error after 110 ms |
+| Client network cut for 5 s | the session survives; first success 1.1 s after the network returns; 0 errors after |
+| Client network cut for 60 s | the session drops (heartbeat); first success 3.3 s after the network returns; 0 errors after |
+| 10% packet loss and 50±20 ms delay on the client link | 0 errors of 740 |
+
+## v0.2.0: per-IP limits (2026-10-22)
+
+One address opening 300 connections to service A with a limit of 40: at most 40 stay open, the rest get a TCP reset (the new-connection rate rule dropped another 483 SYNs); service B: 0 errors of 572 and p95 2 ms, the same as its baseline; service A keeps answering other clients.

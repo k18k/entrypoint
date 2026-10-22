@@ -1,11 +1,12 @@
 package tests
 
-// e2e suite 11 (v0.1 part): resilience to client network failures and Caddy restarts.
+// e2e suite 11: resilience to failures of entrypointd, frps and API clients, Caddy restarts,
+// client network cuts and packet loss.
 
 import (
 	"context"
 	"errors"
-	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -71,16 +72,13 @@ func testCut(t *testing.T, d time.Duration) {
 }
 
 func TestResilience_NetworkCut5s(t *testing.T) {
-	h.Experiment(t)
 	testCut(t, 5*time.Second)
 }
 func TestResilience_NetworkCut60s(t *testing.T) {
-	h.Experiment(t)
 	testCut(t, 60*time.Second)
 }
 
 func TestResilience_PacketLoss(t *testing.T) {
-	h.Experiment(t)
 	e := apiSetup(t)
 	_, connect := e.Token("api")
 	e.StartApp(h.AppOptions{Container: h.ClientA, Connect: connect, Replica: "a", Wait: true})
@@ -99,7 +97,6 @@ func TestResilience_PacketLoss(t *testing.T) {
 
 // A Caddy restart drops connections; HTTP comes back and the WebSocket client must reconnect.
 func TestResilience_CaddyRestart(t *testing.T) {
-	h.Experiment(t)
 	e := apiSetup(t)
 	_, connect := e.Token("api")
 	e.StartApp(h.AppOptions{Container: h.ClientA, Connect: connect, Replica: "a", Wait: true})
@@ -138,5 +135,97 @@ func TestResilience_CaddyRestart(t *testing.T) {
 	if wsErr == nil || reconnect > 15*time.Second || lastBad > 15*time.Second {
 		t.Fatal("Caddy restart: outage too long")
 	}
-	_ = fmt.Sprint
+}
+
+// recovery measures a failure under load: errors during it, and the time until the last error.
+func recovery(e *h.Env, url string, fail func()) (bad, total int, lastBad time.Duration) {
+	load := e.StartLoad(url, 2, 50*time.Millisecond)
+	time.Sleep(2 * time.Second)
+	t0 := time.Now()
+	fail()
+	time.Sleep(20 * time.Second)
+	ss := h.Window(load.Stop(), t0, time.Now())
+	for _, s := range ss {
+		if s.Status != 200 {
+			bad++
+			lastBad = s.At.Sub(t0)
+		}
+	}
+	return bad, len(ss), lastBad
+}
+
+// kill -9 of entrypointd: public traffic and existing tunnels do not notice; systemd restarts it
+// and configuration changes and new tunnel logins work again.
+func TestResilience_EntrypointdCrash(t *testing.T) {
+	e := apiSetup(t)
+	_, connect := e.Token("api")
+	e.StartApp(h.AppOptions{Container: h.ClientA, Connect: connect, Replica: "a", Wait: true})
+	e.WaitHTTPS("https://api.ep.test/whoami", 200)
+	bad, total, _ := recovery(e, "https://api.ep.test/whoami", func() {
+		e.MustExec(h.Gateway, "systemctl", "kill", "-s", "KILL", "entrypointd.service")
+	})
+	var back time.Duration
+	t0 := time.Now()
+	e.Eventually(30*time.Second, 200*time.Millisecond, "entrypointd answers", func() error {
+		_, err := e.EP("status")
+		back = time.Since(t0)
+		return err
+	})
+	e.Service("after", "--health", "/health")
+	_, c2 := e.Token("api")
+	e.StartApp(h.AppOptions{Container: h.ClientB, Connect: c2, Replica: "b", Wait: true})
+	result(t, "kill -9 entrypointd under load: %d errors of %d; API back within %s; change and new tunnel login after it: ok", bad, total, ms(back))
+	if bad > 0 {
+		t.Fatal("public traffic noticed the entrypointd crash")
+	}
+}
+
+// frps restart: every tunnel drops; connectors log in again on their own.
+func TestResilience_FrpsRestart(t *testing.T) {
+	e := apiSetup(t)
+	_, connect := e.Token("api")
+	a := e.StartApp(h.AppOptions{Container: h.ClientA, Connect: connect, Replica: "a", Wait: true})
+	e.WaitHTTPS("https://api.ep.test/whoami", 200)
+	bad, total, lastBad := recovery(e, "https://api.ep.test/whoami", func() {
+		e.MustExec(h.Gateway, "systemctl", "restart", "entrypoint-frps")
+	})
+	st := a.MustStats()
+	result(t, "frps restart under load: %d errors of %d, last error %s after the restart; the connector reconnected: %v",
+		bad, total, ms(lastBad), st.HasEvent("disconnected") && st.State == "healthy")
+	if lastBad > 15*time.Second {
+		t.Fatalf("tunnels came back only after %s", lastBad)
+	}
+	if st.State != "healthy" {
+		t.Fatalf("the replica did not come back: %s", st.State)
+	}
+}
+
+// API clients that die mid-request or hold the socket open (a stuck CLI or panel) do not block
+// entrypointd: the CLI keeps answering and changes still apply.
+func TestResilience_APIClientFailure(t *testing.T) {
+	e := apiSetup(t)
+	// 50 clients send half a request and hang; 20 send a body shorter than announced and die.
+	e.MustSh(h.Gateway, `cd /tmp && for i in $(seq 1 50); do (printf 'GET /v1/status HTTP/1.1
+Host: x
+'; sleep 30) | nc -U /run/entrypoint/api.sock >/dev/null 2>&1 & done
+for i in $(seq 1 20); do printf 'POST /v1/services HTTP/1.1
+Host: x
+Content-Type: application/json
+Content-Length: 500
+
+{"name":' | timeout 1 nc -U /run/entrypoint/api.sock >/dev/null 2>&1; done; true`)
+	t0 := time.Now()
+	_, err := e.EP("status")
+	took := time.Since(t0)
+	e.Service("still-works")
+	services := e.MustEP("service", "list")
+	e.MustSh(h.Gateway, "pkill -f '[n]c -U /run/entrypoint/api.sock' || true")
+	result(t, "50 stuck and 20 aborted API clients: CLI status in %s (err %v); a change applied afterwards: %v",
+		ms(took), err, strings.Contains(services, "still-works"))
+	if err != nil || took > 3*time.Second || !strings.Contains(services, "still-works") {
+		t.Fatal("broken API clients blocked entrypointd")
+	}
+	if strings.Contains(services, "\"name\":") {
+		t.Fatal("a truncated request created something")
+	}
 }
