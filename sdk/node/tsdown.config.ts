@@ -1,7 +1,7 @@
 import { defineConfig } from "tsdown";
 
 export default defineConfig({
-  entry: ["src/index.ts", "src/http.ts", "src/cli.ts"],
+  entry: ["src/index.ts", "src/http.ts", "src/fastify.ts", "src/hono.ts", "src/cli.ts"],
   format: "esm",
   platform: "node",
   target: "node22",

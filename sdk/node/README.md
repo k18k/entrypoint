@@ -33,6 +33,27 @@ const conn = await expose((req, res) => res.end("ok"), {
 });
 ```
 
+Fastify and Hono get the same drain (WebSockets attached to `conn.server`, e.g. with `ws`, are closed with 1001 too):
+
+```js
+import Fastify from "fastify";
+import { exposeFastify } from "@k18k/entrypoint-sdk/fastify";
+
+const app = Fastify();
+app.get("/health", async () => "ok");
+await exposeFastify(app, { service: "api", healthCheck: "/health" }); // waits for app.ready()
+```
+
+```js
+import { Hono } from "hono";
+import { exposeHono } from "@k18k/entrypoint-sdk/hono"; // needs @hono/node-server
+
+const app = new Hono().get("/health", (c) => c.text("ok"));
+await exposeHono(app, { service: "api", healthCheck: "/health" });
+```
+
+For TanStack Start, Next.js or other frameworks with their own server, use the base contract below (or `expose()` with the framework's Node request handler).
+
 Base contract: a tunnel to an address where the application is already listening.
 
 ```js

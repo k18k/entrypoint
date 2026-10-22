@@ -241,8 +241,8 @@ npx @k18k/entrypoint-sdk tunnel --service api --upstream http://127.0.0.1:3000
 | Adapter | Version | What it does |
 | --- | --- | --- |
 | `@k18k/entrypoint-sdk/http` | v0.1 | `expose(handler)` (any `(req, res)` handler, including an Express app) starts a server on `127.0.0.1:0` and the tunnel; on drain it stops accepting connections, sends `Connection: close` and closes WebSockets with code 1001 |
-| `@k18k/entrypoint-sdk/fastify` | v0.2.0 | Waits for `ready()` and uses the Fastify server, with the same drain |
-| `@k18k/entrypoint-sdk/hono` | v0.2.0 | Runs the handler through the Node adapter for Hono, with the same drain |
+| `@k18k/entrypoint-sdk/fastify` | v0.2.0 | `exposeFastify(app)` waits for `ready()`, serves the app through `app.routing` on the adapter's server and passes WebSocket upgrades to the Fastify server, with the same drain |
+| `@k18k/entrypoint-sdk/hono` | v0.2.0 | `exposeHono(app)` runs `app.fetch` through `@hono/node-server`'s request listener (an optional peer dependency), with the same drain |
 
 Each adapter has CI tests for the supported ranges of framework and Node.js versions. Bun and Deno work through the base contract until tests are added.
 

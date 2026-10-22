@@ -1,12 +1,16 @@
 // e2e test app on native node:http, exposed through Entrypoint.
 // MODE=adapter — expose(handler) adapter from @k18k/entrypoint-sdk/http
 // MODE=base    — base contract: server.listen + tunnel()
+// MODE=fastify — exposeFastify(app) with native Fastify routes
+// MODE=hono    — exposeHono(app) with native Hono routes
 // The test control panel listens on 0.0.0.0:CTL_PORT (outside the tunnel).
 import crypto from "node:crypto";
 import http from "node:http";
 import { WebSocketServer } from "ws";
 import { tunnel } from "@k18k/entrypoint-sdk";
 import { connectTo, expose } from "@k18k/entrypoint-sdk/http";
+import { exposeFastify } from "@k18k/entrypoint-sdk/fastify";
+import { exposeHono } from "@k18k/entrypoint-sdk/hono";
 
 const MODE = process.env.MODE ?? "adapter";
 const REPLICA = process.env.REPLICA ?? "r1";
@@ -79,8 +83,63 @@ let conn; // adapter
 let tun; // kontrakt bazowy
 let appServer;
 
+// Framework apps: /health, /whoami and /sse are native routes; the rest falls back to handler().
+async function fastifyApp() {
+  const { default: fastify } = await import("fastify");
+  const app = fastify();
+  app.get(HEALTH, async (_req, reply) => (healthy ? "ok" : reply.code(500).send("sick")));
+  app.get("/whoami", async (req) => {
+    stats.requests++;
+    return { replica: REPLICA, pid: process.pid, framework: "fastify", headers: req.headers };
+  });
+  app.get("/sse", (_req, reply) => {
+    reply.hijack();
+    reply.raw.writeHead(200, { "Content-Type": "text/event-stream" });
+    let i = 0;
+    const t = setInterval(() => reply.raw.write(`data: ${REPLICA} ${i++}\n\n`), 200);
+    reply.raw.on("close", () => clearInterval(t));
+  });
+  app.all("/*", (req, reply) => {
+    reply.hijack();
+    handler(req.raw, reply.raw);
+  });
+  return app;
+}
+
+async function honoApp() {
+  const { Hono } = await import("hono");
+  const { streamSSE } = await import("hono/streaming");
+  const app = new Hono();
+  app.get(HEALTH, (c) => (healthy ? c.text("ok") : c.text("sick", 500)));
+  app.get("/whoami", (c) => {
+    stats.requests++;
+    return c.json({ replica: REPLICA, pid: process.pid, framework: "hono", headers: Object.fromEntries(c.req.raw.headers) });
+  });
+  app.get("/sse", (c) =>
+    streamSSE(c, async (stream) => {
+      for (let i = 0; !stream.aborted && !stream.closed; i++) {
+        await stream.writeSSE({ data: `${REPLICA} ${i}` });
+        await stream.sleep(200);
+      }
+    }),
+  );
+  app.all("*", (c) => c.json({ replica: REPLICA, path: new URL(c.req.url).pathname }));
+  return app;
+}
+
 async function start() {
-  if (MODE === "adapter") {
+  if (MODE === "fastify" || MODE === "hono") {
+    let wss;
+    const opts = {
+      service: SERVICE, healthCheck: HEALTH, replica: REPLICA, drainTimeoutMs: DRAIN_MS,
+      healthIntervalSec: 1, healthMaxFailed: 2,
+      get websockets() { return wss ? [wss] : []; },
+    };
+    conn = MODE === "fastify" ? await exposeFastify(await fastifyApp(), opts) : await exposeHono(await honoApp(), opts);
+    wss = attachWs(conn.server);
+    appServer = conn.server;
+    tun = conn.tunnel;
+  } else if (MODE === "adapter") {
     let wss;
     // CONNECT_TO=1: deprecated connectTo alias (compatibility with 0.1.0).
     conn = await (process.env.CONNECT_TO === "1" ? connectTo : expose)(handler, {

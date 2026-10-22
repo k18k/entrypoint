@@ -1,6 +1,6 @@
 package tests
 
-// e2e suite 9: the SDK (base contract and node:http adapter) across a Node.js version matrix.
+// e2e suite 9: the SDK (base contract, node:http, Fastify and Hono adapters) across a Node.js version matrix.
 
 import (
 	"context"
@@ -75,6 +75,76 @@ func TestSDK_Matrix(t *testing.T) {
 			}
 			if mode == "base" && wsAfter < 4*time.Second {
 				t.Errorf("%s: the base contract dropped the WebSocket before drainTimeout (%s)", sc.label, wsAfter)
+			}
+			e.StopAllApps()
+		}
+	}
+	result(t, "%s", strings.Join(lines, "; "))
+}
+
+// Fastify and Hono adapters in the matrix: native routes, WebSocket and SSE through the tunnel;
+// on drain the WebSocket closes with code 1001 and the SSE stream ends well before drainTimeout.
+func TestSDK_Frameworks(t *testing.T) {
+	e := apiSetup(t)
+	var lines []string
+	for _, sc := range sdkMatrix {
+		for _, mode := range []string{"fastify", "hono"} {
+			_, connect := e.Token("api")
+			rep := strings.ToLower(fmt.Sprintf("%s-%s", mode, strings.ReplaceAll(strings.Fields(sc.label)[1], ".", "")))
+			a := e.StartApp(h.AppOptions{Container: sc.container, Connect: connect, Replica: rep, Mode: mode, DrainMs: 10000, Wait: true})
+			e.WaitReplicas("api", []string{rep}, 30*time.Second)
+			e.WaitHTTPS("https://api.ep.test/whoami", 200)
+			code, body, err := get(e.HTTPClient(), "https://api.ep.test/whoami")
+			if err != nil || code != 200 || replicaOf(body) != rep || !strings.Contains(body, `"framework":"`+mode+`"`) {
+				t.Fatalf("%s %s: %d %v %s", sc.label, mode, code, err, body)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			ws, _, err := websocket.Dial(ctx, "wss://api.ep.test/ws", &websocket.DialOptions{HTTPClient: e.HTTPClient()})
+			if err != nil {
+				cancel()
+				t.Fatalf("%s %s: WebSocket: %v", sc.label, mode, err)
+			}
+			ws.Write(ctx, websocket.MessageText, []byte("x"))
+			_, m, _ := ws.Read(ctx)
+			sse, sseDone := readSSE(ctx, e, "https://api.ep.test/sse")
+			select {
+			case <-sse:
+			case err := <-sseDone:
+				cancel()
+				t.Fatalf("%s %s: SSE: %v", sc.label, mode, err)
+			}
+			t0 := time.Now()
+			a.Drain(10000)
+			wsErr := make(chan error, 1)
+			go func() { _, _, err := ws.Read(ctx); wsErr <- err }()
+			var sseAfter time.Duration
+		drainSSE:
+			for {
+				select {
+				case <-sse:
+				case <-sseDone:
+					sseAfter = time.Since(t0)
+					break drainSSE
+				case <-ctx.Done():
+					sseAfter = time.Since(t0)
+					break drainSSE
+				}
+			}
+			closeCode := websocket.CloseStatus(<-wsErr)
+			cancel()
+			e.Eventually(30*time.Second, 300*time.Millisecond, "drain finished", func() error {
+				log, _ := e.Sh(sc.container, "cat "+a.Log)
+				if !strings.Contains(log, `"drained":true`) {
+					return errors.New("SDK drain not finished")
+				}
+				return nil
+			})
+			lines = append(lines, fmt.Sprintf("%s %s: WS echo %q, WS code %d, SSE ended after %s", sc.label, mode, m, closeCode, ms(sseAfter)))
+			if closeCode != websocket.StatusGoingAway {
+				t.Errorf("%s %s: WebSocket not closed with 1001 (%d)", sc.label, mode, closeCode)
+			}
+			if sseAfter > 8*time.Second {
+				t.Errorf("%s %s: SSE not closed on drain (%s)", sc.label, mode, sseAfter)
 			}
 			e.StopAllApps()
 		}

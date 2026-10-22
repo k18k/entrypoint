@@ -1,7 +1,7 @@
 {
   "name": "@k18k/entrypoint-sdk",
   "version": "0.1.1",
-  "description": "Entrypoint SDK: a tunnel from an application to an Entrypoint gateway (base contract and node:http adapter)",
+  "description": "Entrypoint SDK: a tunnel from an application to an Entrypoint gateway (base contract, node:http, Fastify and Hono adapters)",
   "homepage": "https://github.com/k18k/entrypoint",
   "license": "Apache-2.0",
   "repository": {
@@ -27,6 +27,14 @@
     "./http": {
       "types": "./lib/http.d.ts",
       "default": "./lib/http.js"
+    },
+    "./fastify": {
+      "types": "./lib/fastify.d.ts",
+      "default": "./lib/fastify.js"
+    },
+    "./hono": {
+      "types": "./lib/hono.d.ts",
+      "default": "./lib/hono.js"
     }
   },
   "publishConfig": {
@@ -46,6 +54,14 @@
     "oxlint": "1.88.0",
     "tsdown": "0.23.1",
     "typescript": "7.0.2"
+  },
+  "peerDependencies": {
+    "@hono/node-server": ">=1.13"
+  },
+  "peerDependenciesMeta": {
+    "@hono/node-server": {
+      "optional": true
+    }
   },
   "optionalDependencies": {
     "@k18k/entrypoint-sdk-darwin-arm64": "0.1.1",
