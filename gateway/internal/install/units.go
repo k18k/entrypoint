@@ -34,7 +34,11 @@ var UnitNames = []string{
 	"entrypoint-frps-reload.service",
 	"entrypoint-headscale.service",
 	"entrypoint-tailscaled.service",
+	"entrypoint-panel.service",
 }
+
+// PanelUnit runs the web panel (config.Panel).
+const PanelUnit = "entrypoint-panel.service"
 
 // VPNUnits run the built-in VPN (config.VPN).
 var VPNUnits = []string{"entrypoint-headscale.service", "entrypoint-tailscaled.service"}
@@ -46,6 +50,27 @@ func units(cfg config.Config, configPath string) map[string]string {
 		for k, v := range vpnUnits(cfg) {
 			u[k] = v
 		}
+	}
+	if cfg.Panel.Enabled() {
+		u["entrypoint.target"] = strings.Replace(u["entrypoint.target"], "entrypoint-frps-reload.path", "entrypoint-frps-reload.path "+PanelUnit, 1)
+		u[PanelUnit] = fmt.Sprintf(`[Unit]
+Description=Entrypoint: web panel
+PartOf=entrypoint.target
+After=network-online.target entrypointd.service
+
+[Service]
+User=%[1]s
+Group=%[1]s
+SupplementaryGroups=%[2]s
+ExecStart=%[3]s/entrypoint-panel --config %[4]s
+Restart=always
+RestartSec=1
+%[5]s
+UMask=0077
+
+[Install]
+WantedBy=entrypoint.target
+`, config.UserPanel, config.UserDaemon, filepath.Join(config.OptDir, "current", "bin"), configPath, hardening)
 	}
 	return u
 }
@@ -96,6 +121,14 @@ WantedBy=entrypoint.target
 	}
 }
 
+// vpnGroup lets entrypointd use Headscale's socket and configuration.
+func vpnGroup(cfg config.Config) string {
+	if cfg.VPN.Enabled() {
+		return " " + config.UserVPN
+	}
+	return ""
+}
+
 func baseUnits(cfg config.Config, configPath string) map[string]string {
 	bin := filepath.Join(config.OptDir, "current", "bin")
 	dd := cfg.DataDir
@@ -131,7 +164,7 @@ Wants=network-online.target
 [Service]
 User=%[1]s
 Group=%[1]s
-SupplementaryGroups=%[2]s %[3]s
+SupplementaryGroups=%[2]s %[3]s%[8]s
 ExecStart=%[4]s/entrypointd --config %[5]s
 Restart=always
 RestartSec=1
@@ -143,7 +176,7 @@ UMask=0077
 
 [Install]
 WantedBy=entrypoint.target
-`, config.UserDaemon, config.UserCaddy, config.UserFrps, bin, configPath, dd, hardening),
+`, config.UserDaemon, config.UserCaddy, config.UserFrps, bin, configPath, dd, hardening, vpnGroup(cfg)),
 		"entrypoint-caddy.service": fmt.Sprintf(`[Unit]
 Description=Entrypoint: Caddy (HTTP and TLS)
 PartOf=entrypoint.target

@@ -49,6 +49,7 @@ func entries(cfg config.Config) map[string]string {
 		"secrets":       filepath.Join(cfg.DataDir, "secrets"),
 		"headscale":     cfg.HeadscaleDir(),
 		"tailscale":     cfg.TailscaleDir(),
+		"panel":         cfg.PanelDir(),
 	}
 }
 
@@ -224,7 +225,7 @@ func Restore(ctx context.Context, cfgPath, password string, r io.Reader, out io.
 	pinHostFields(&bcfg, cur)
 
 	fmt.Fprintln(out, "Stopping services...")
-	_ = exec.Command("systemctl", append([]string{"stop", "entrypoint-frps.service", "entrypointd.service", "entrypoint-caddy.service"}, install.VPNUnits...)...).Run()
+	_ = exec.Command("systemctl", append([]string{"stop", "entrypoint-frps.service", "entrypointd.service", "entrypoint-caddy.service", install.PanelUnit}, install.VPNUnits...)...).Run()
 
 	dd := bcfg.DataDir
 	_ = os.Remove(bcfg.DBPath() + "-wal")
@@ -400,4 +401,5 @@ func pinHostFields(b *config.Config, cur config.Config) {
 	b.CaddyBin = cur.CaddyBin
 	b.Testing = cur.Testing
 	b.VPN.Listen = cur.VPN.Listen
+	b.Panel.Listen = cur.Panel.Listen
 }

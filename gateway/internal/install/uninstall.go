@@ -36,7 +36,7 @@ func Uninstall(cfg config.Config, purge bool, out io.Writer) error {
 	if err := os.RemoveAll(config.EtcDir); err != nil {
 		return err
 	}
-	for _, u := range []string{config.UserDaemon, config.UserCaddy, config.UserFrps, config.UserVPN} {
+	for _, u := range []string{config.UserDaemon, config.UserCaddy, config.UserFrps, config.UserVPN, config.UserPanel} {
 		_ = exec.Command("userdel", u).Run()
 		_ = exec.Command("groupdel", u).Run()
 	}

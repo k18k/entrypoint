@@ -5,4 +5,6 @@ node_modules/
 /sdk/node/lib/
 /e2e/.run/
 /dist/npm-src/
-/sdk/node/connector.json
+/panel/dist/
+/gateway/internal/panel/ui/*
+!/gateway/internal/panel/ui/.gitkeep

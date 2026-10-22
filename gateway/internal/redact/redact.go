@@ -11,6 +11,8 @@ import (
 var patterns = []*regexp.Regexp{
 	regexp.MustCompile(`ept_[0-9a-f]{12}_[A-Za-z0-9_-]{20,}`),
 	regexp.MustCompile(`epc1\.[A-Za-z0-9_-]{20,}`),
+	regexp.MustCompile(`epv1\.[A-Za-z0-9_-]{20,}`),
+	regexp.MustCompile(`hskey-[a-z]+-[A-Za-z0-9_-]{20,}`),
 	regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----`),
 }
 

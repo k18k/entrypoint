@@ -22,12 +22,12 @@ func TestSecrets_NoSecretsInLogs(t *testing.T) {
 	// Errors: a mangled bundle, a malformed token, the wrong service, a revoked token.
 	broken := strings.Replace(cb, "epc1.", "epc1.X", 1)
 	e.WriteFile(h.ClientB, "/run/ep/broken", broken, "600")
-	out1, _ := e.Sh(h.ClientB, `ENTRYPOINT_CONNECT="$(cat /run/ep/broken)" /app/node_modules/@k18k/entrypoint-linux-x64/bin/entrypoint-connector tunnel --upstream http://127.0.0.1:1 2>&1`)
+	out1, _ := e.Sh(h.ClientB, `ENTRYPOINT_CONNECT="$(cat /run/ep/broken)" /app/node_modules/@k18k/entrypoint-sdk-linux-x64/bin/entrypoint-connector tunnel --upstream http://127.0.0.1:1 2>&1`)
 	e.WriteFile(h.ClientB, "/run/ep/b", cb, "600")
-	out2, _ := e.Sh(h.ClientB, `ENTRYPOINT_CONNECT="$(cat /run/ep/b)" timeout 5 /app/node_modules/@k18k/entrypoint-linux-x64/bin/entrypoint-connector tunnel --service other --upstream http://127.0.0.1:1 2>&1`)
+	out2, _ := e.Sh(h.ClientB, `ENTRYPOINT_CONNECT="$(cat /run/ep/b)" timeout 5 /app/node_modules/@k18k/entrypoint-sdk-linux-x64/bin/entrypoint-connector tunnel --service other --upstream http://127.0.0.1:1 2>&1`)
 	tokB := h.TokenFromBundle(cb)
 	e.WriteFile(h.ClientB, "/run/ep/badtok", strings.Replace(tokB, "_", "-", 1), "600")
-	out3, _ := e.Sh(h.ClientB, `ENTRYPOINT_CONNECT="$(cat /run/ep/badtok)" /app/node_modules/@k18k/entrypoint-linux-x64/bin/entrypoint-connector tunnel --upstream http://127.0.0.1:1 2>&1`)
+	out3, _ := e.Sh(h.ClientB, `ENTRYPOINT_CONNECT="$(cat /run/ep/badtok)" /app/node_modules/@k18k/entrypoint-sdk-linux-x64/bin/entrypoint-connector tunnel --upstream http://127.0.0.1:1 2>&1`)
 	e.MustEP("token", "revoke", id)
 	time.Sleep(15 * time.Second)
 	// Client processes: the token never appears in arguments.

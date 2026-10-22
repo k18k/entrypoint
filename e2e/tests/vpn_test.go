@@ -51,14 +51,15 @@ echo $! > /tmp/ts/node.pid`)
 }
 
 func vpnNodes(e *h.Env) map[string]string {
-	var nodes []struct {
-		ID        int      `json:"id"`
-		Name      string   `json:"given_name"`
-		Addresses []string `json:"ip_addresses"`
+	var v struct {
+		Nodes []struct {
+			Name      string   `json:"name"`
+			Addresses []string `json:"addresses"`
+		} `json:"nodes"`
 	}
-	e.EPJSON(&nodes, "vpn", "nodes", "--json")
+	e.EPJSON(&v, "vpn", "nodes", "--json")
 	out := map[string]string{}
-	for _, n := range nodes {
+	for _, n := range v.Nodes {
 		out[n.Name] = strings.Join(n.Addresses, " ")
 	}
 	return out
@@ -120,4 +121,69 @@ func TestVPN_BackupRestore(t *testing.T) {
 	if after["gateway"] != before["gateway"] || after["client-a"] != before["client-a"] || body != "vpn-node" {
 		t.Fatal("the VPN did not come back from the backup")
 	}
+}
+
+const connectorBin = "/app/node_modules/@k18k/entrypoint-sdk-linux-x64/bin/entrypoint-connector"
+
+// startVPNConnector runs `entrypoint-connector vpn` in a container with the bundle from a file.
+func startVPNConnector(e *h.Env, container, bundle, args string) {
+	roots, err := h.PebbleRootsPEM()
+	if err != nil {
+		e.T.Fatal(err)
+	}
+	e.MustSh(container, "pkill -f '[e]ntrypoint-connector vpn'; rm -rf /tmp/epvpn; mkdir -p /tmp/epvpn")
+	e.WriteFile(container, "/tmp/epvpn/roots.pem", string(roots), "644")
+	e.WriteFile(container, "/tmp/epvpn/bundle", bundle, "600")
+	e.MustSh(container, `ENTRYPOINT_VPN="$(cat /tmp/epvpn/bundle)" SSL_CERT_FILE=/tmp/epvpn/roots.pem setsid `+connectorBin+` vpn --state-dir /tmp/epvpn/state `+args+` >/tmp/epvpn/connector.log 2>&1 < /dev/null &`)
+}
+
+// The user's scenario in small: a "database" machine publishes a local port as vatro-db with the
+// connector, an app machine reaches it by name through --forward, and the gateway routes to it too.
+func TestVPN_ConnectorExposeAndForward(t *testing.T) {
+	e := h.New(t)
+	e.StopAllApps()
+	e.SetDNS(map[string]string{vpnName: h.GatewayIP, "db.ep.test": h.GatewayIP})
+	e.ResetGateway(h.Gateway)
+	e.Install(h.InstallOptions{Extra: []string{"--vpn-name", vpnName}})
+	e.WaitHTTPS("https://"+vpnName+"/health", 200)
+	bundle := strings.TrimSpace(e.MustEP("vpn", "key", "--bundle", "--reusable"))
+	e.Secrets = append(e.Secrets, bundle)
+
+	// The database: listens only on 127.0.0.1.
+	e.MustSh(h.ClientB, `[ -f /tmp/db.pid ] && kill $(cat /tmp/db.pid); setsid node -e "require('http').createServer((q, s) => s.end('db')).listen(8091, '127.0.0.1')" >/tmp/db.log 2>&1 < /dev/null &
+echo $! > /tmp/db.pid`)
+	startVPNConnector(e, h.ClientB, bundle, "--name vatro-db --expose 5432=127.0.0.1:8091")
+	// The app machine: vatro-db:5432 on its own 127.0.0.1:5432.
+	startVPNConnector(e, h.ClientN22, bundle, "--name vatro-app --forward vatro-db:5432")
+
+	var body string
+	e.Eventually(90*time.Second, time.Second, "vatro-db through --forward", func() error {
+		out, err := e.Sh(h.ClientN22, "curl -sf --max-time 3 http://127.0.0.1:5432/")
+		body = out
+		return err
+	})
+	var dbIP string
+	e.Eventually(30*time.Second, time.Second, "vatro-db in vpn nodes", func() error {
+		for _, l := range strings.Split(e.MustEP("vpn", "nodes"), "\n") {
+			if f := strings.Fields(l); len(f) > 2 && f[1] == "vatro-db" {
+				dbIP = f[2]
+				return nil
+			}
+		}
+		return fmt.Errorf("not listed")
+	})
+	e.Route("db.ep.test", "--to", dbIP+":5432")
+	e.WaitHTTPS("https://db.ep.test/", 200)
+	_, viaGateway, _ := get(e.HTTPClient(), "https://db.ep.test/")
+	logs := e.MustSh(h.ClientB, "cat /tmp/epvpn/connector.log; ps -eo args") + e.MustSh(h.ClientN22, "cat /tmp/epvpn/connector.log; ps -eo args")
+	result(t, "forward vatro-db:5432 -> %q; gateway route to %s:5432 -> %q; bundle in logs or arguments: %v",
+		body, dbIP, viaGateway, strings.Contains(logs, bundle))
+	if body != "db" || viaGateway != "db" {
+		t.Fatal("the connector did not carry traffic through the VPN")
+	}
+	if strings.Contains(logs, bundle) {
+		t.Fatal("the VPN bundle leaked")
+	}
+	e.MustSh(h.ClientB, "pkill -f '[e]ntrypoint-connector vpn'; kill $(cat /tmp/db.pid)")
+	e.MustSh(h.ClientN22, "pkill -f '[e]ntrypoint-connector vpn'")
 }

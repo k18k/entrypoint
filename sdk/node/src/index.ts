@@ -7,9 +7,6 @@ import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
-import { connectorDirs, connectorExe, ensureConnector } from "./connector.js";
-
-export { ensureConnector } from "./connector.js";
 
 export interface TunnelOptions {
   /** ENTRYPOINT_CONNECT connection bundle (from process.env by default). */
@@ -147,14 +144,16 @@ export class Tunnel extends EventEmitter {
   }
 }
 
+/** The package with the connector and frpc for this platform (an optional dependency of the SDK). */
 function platformPackage(): string {
-  return `@k18k/entrypoint-${process.platform}-${process.arch}`;
+  return `@k18k/entrypoint-sdk-${process.platform}-${process.arch}`;
 }
 
-/**
- * Finds the connector binary: an explicit path, ENTRYPOINT_CONNECTOR, the platform package
- * (if installed), the package's bin/ directory or the download cache.
- */
+function connectorExe(): string {
+  return process.platform === "win32" ? "entrypoint-connector.exe" : "entrypoint-connector";
+}
+
+/** Finds the connector binary: an explicit path, ENTRYPOINT_CONNECTOR or the platform package. */
 export function findConnector(explicit?: string): string {
   const exe = connectorExe();
   const candidates: string[] = [];
@@ -167,28 +166,12 @@ export function findConnector(explicit?: string): string {
   } catch {
     // the platform package is not installed
   }
-  for (const dir of connectorDirs()) candidates.push(join(dir, exe));
   const found = candidates.find((c) => existsSync(c));
   if (found) return found;
   throw new TunnelError(
-    `${exe} not found; run npx entrypoint-tunnel install-connector or set ENTRYPOINT_CONNECTOR`,
+    `${exe} not found: ${platformPackage()} is not installed (supported: linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64; ` +
+      `do not install with --omit=optional) and ENTRYPOINT_CONNECTOR is not set`,
   );
-}
-
-async function resolveConnector(explicit?: string): Promise<string> {
-  try {
-    return findConnector(explicit);
-  } catch (err) {
-    if (explicit || process.env.ENTRYPOINT_CONNECTOR || process.env.ENTRYPOINT_NO_DOWNLOAD)
-      throw err;
-    try {
-      return await ensureConnector();
-    } catch (dl) {
-      throw new TunnelError(
-        `failed to download the connector: ${dl instanceof Error ? dl.message : String(dl)}`,
-      );
-    }
-  }
 }
 
 function connectorArgs(opts: TunnelOptions): string[] {
@@ -233,7 +216,7 @@ function waitReady(t: Tunnel, timeoutMs: number): Promise<void> {
 export async function tunnel(opts: TunnelOptions): Promise<Tunnel> {
   const connect = opts.connect ?? process.env.ENTRYPOINT_CONNECT;
   if (!connect) throw new TunnelError("missing connection bundle (ENTRYPOINT_CONNECT)");
-  const bin = await resolveConnector(opts.connectorPath);
+  const bin = findConnector(opts.connectorPath);
   // The connection bundle is passed only through the connector's environment, never in arguments.
   const child = spawn(bin, connectorArgs(opts), {
     env: { ...process.env, ENTRYPOINT_CONNECT: connect },

@@ -123,3 +123,43 @@ func DecodeBundle(s string) (Bundle, error) {
 	}
 	return b, nil
 }
+
+// VPNBundle is what a machine needs to join the gateway's VPN through the connector.
+type VPNBundle struct {
+	V      int    `json:"v"`
+	Server string `json:"server"` // control server URL, https://vpn.example.com
+	Key    string `json:"key"`    // Headscale pre-auth key
+}
+
+const vpnBundlePrefix = "epv1."
+
+func (b VPNBundle) Encode() (string, error) {
+	if b.V == 0 {
+		b.V = 1
+	}
+	raw, err := json.Marshal(b)
+	if err != nil {
+		return "", err
+	}
+	return vpnBundlePrefix + base64.RawURLEncoding.EncodeToString(raw), nil
+}
+
+// DecodeVPNBundle decodes and checks a VPN bundle. Errors never contain its content.
+func DecodeVPNBundle(s string) (VPNBundle, error) {
+	var b VPNBundle
+	s = strings.TrimSpace(s)
+	if !strings.HasPrefix(s, vpnBundlePrefix) {
+		return b, errors.New("ENTRYPOINT_VPN: unknown bundle format")
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(s[len(vpnBundlePrefix):])
+	if err != nil || json.Unmarshal(raw, &b) != nil {
+		return b, errors.New("ENTRYPOINT_VPN: corrupted bundle")
+	}
+	if b.V != 1 {
+		return b, fmt.Errorf("ENTRYPOINT_VPN: unsupported bundle version %d", b.V)
+	}
+	if !strings.HasPrefix(b.Server, "https://") || b.Key == "" {
+		return b, errors.New("ENTRYPOINT_VPN: missing control server or key")
+	}
+	return b, nil
+}

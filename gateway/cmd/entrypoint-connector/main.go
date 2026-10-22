@@ -1,14 +1,19 @@
-// entrypoint-connector: the tunnel connector around the official frpc binary.
+// entrypoint-connector: the tunnel connector around the official frpc binary, and a
+// userspace node of the gateway's VPN.
 //
 //	ENTRYPOINT_CONNECT=... entrypoint-connector tunnel --service api --upstream http://127.0.0.1:3000
+//	ENTRYPOINT_VPN=... entrypoint-connector vpn --name db --expose 5432
 package main
 
 import (
 	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -21,18 +26,24 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: entrypoint-connector tunnel|rebundle|version [options]")
+		fmt.Fprintln(os.Stderr, "usage: entrypoint-connector tunnel|vpn|rebundle|version [options]")
 		os.Exit(2)
 	}
-	switch os.Args[1] {
+	cmd, args := os.Args[1], os.Args[2:]
+	if strings.HasPrefix(cmd, "-") {
+		cmd, args = "tunnel", os.Args[1:] // the image's ENTRYPOINT used to include "tunnel"
+	}
+	switch cmd {
 	case "tunnel":
-		os.Exit(tunnel(os.Args[2:]))
+		os.Exit(tunnel(args))
+	case "vpn":
+		os.Exit(vpn(args))
 	case "rebundle":
-		os.Exit(rebundle(os.Args[2:]))
+		os.Exit(rebundle(args))
 	case "version", "--version":
 		fmt.Println(version.Version)
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q\n", os.Args[1])
+		fmt.Fprintf(os.Stderr, "unknown command %q\n", cmd)
 		os.Exit(2)
 	}
 }
@@ -134,3 +145,66 @@ func rebundle(args []string) int {
 	fmt.Println(enc)
 	return 0
 }
+
+type multi []string
+
+func (m *multi) String() string     { return strings.Join(*m, ",") }
+func (m *multi) Set(v string) error { *m = append(*m, v); return nil }
+
+// vpn joins the gateway's VPN as a userspace node and serves --expose and --forward.
+func vpn(args []string) int {
+	fs := flag.NewFlagSet("vpn", flag.ContinueOnError)
+	name := fs.String("name", "", "node name in the VPN, e.g. vatro-postgres (other machines connect to <name>:<port>)")
+	stateDir := fs.String("state-dir", "", "node identity directory (default: <user config dir>/entrypoint/vpn-<name>)")
+	var expose, forward multi
+	fs.Var(&expose, "expose", "publish a local port in the VPN: <port>[=<host:port>], e.g. 5432 or 5432=127.0.0.1:5432; repeatable")
+	fs.Var(&forward, "forward", "reach a VPN service locally: [<listen host:port>=]<name:port>, e.g. vatro-postgres:5432; repeatable")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	raw := os.Getenv("ENTRYPOINT_VPN")
+	if raw == "" {
+		return fail("ENTRYPOINT_VPN is not set (get a bundle in the panel, VPN > Add service, or with: sudo entrypoint vpn key --bundle)")
+	}
+	b, err := token.DecodeVPNBundle(raw)
+	if err != nil {
+		return fail(err.Error())
+	}
+	if !nodeName.MatchString(*name) {
+		return fail("pass --name: lowercase letters, digits and dashes, e.g. vatro-postgres")
+	}
+	o := connector.VPNOptions{Bundle: b, Name: *name, StateDir: *stateDir,
+		Log: slog.New(redact.Handler{Handler: slog.NewTextHandler(os.Stderr, nil)})}
+	if o.StateDir == "" {
+		dir, err := os.UserConfigDir()
+		if err != nil {
+			return fail("pass --state-dir: " + err.Error())
+		}
+		o.StateDir = filepath.Join(dir, "entrypoint", "vpn-"+*name)
+	}
+	if err := os.MkdirAll(o.StateDir, 0o700); err != nil {
+		return fail(err.Error())
+	}
+	for _, e := range expose {
+		x, err := connector.ParseExpose(e)
+		if err != nil {
+			return fail(err.Error())
+		}
+		o.Expose = append(o.Expose, x)
+	}
+	for _, f := range forward {
+		x, err := connector.ParseForward(f)
+		if err != nil {
+			return fail(err.Error())
+		}
+		o.Forward = append(o.Forward, x)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+	if err := connector.RunVPN(ctx, o); err != nil {
+		return fail(err.Error())
+	}
+	return 0
+}
+
+var nodeName = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)

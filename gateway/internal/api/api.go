@@ -204,3 +204,33 @@ func (c *Client) Do(ctx context.Context, method, path string, in, out any) error
 }
 
 func PathEscape(s string) string { return url.PathEscape(s) }
+
+// VPN is the state of the built-in VPN.
+type VPN struct {
+	Enabled bool      `json:"enabled"`
+	Name    string    `json:"name,omitempty"`   // control server, e.g. vpn.example.com
+	Domain  string    `json:"domain,omitempty"` // node names resolve as <node> or <node>.<domain>
+	Nodes   []VPNNode `json:"nodes"`
+}
+
+type VPNNode struct {
+	ID        uint64     `json:"id"`
+	Name      string     `json:"name"`
+	Addresses []string   `json:"addresses"`
+	Online    bool       `json:"online"`
+	LastSeen  *time.Time `json:"lastSeen,omitempty"`
+}
+
+type VPNKeyCreate struct {
+	Reusable   bool   `json:"reusable,omitempty"`
+	Expiration string `json:"expiration,omitempty"` // Go duration, default 1h
+}
+
+// VPNKey is returned only once.
+type VPNKey struct {
+	Key        string    `json:"key"`
+	Bundle     string    `json:"bundle"` // ENTRYPOINT_VPN for the connector
+	Server     string    `json:"server"`
+	Reusable   bool      `json:"reusable"`
+	Expiration time.Time `json:"expiration"`
+}

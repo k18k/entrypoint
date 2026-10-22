@@ -4,7 +4,8 @@ name: Release
 # keeps package.json, versions.json, install.sh and the SDK in sync; the notes are that
 # version's section of CHANGELOG.md.
 #  1. GitHub release files: gateway (linux_amd64), connector and frpc for all platforms, SHA256SUMS
-#  2. SDK as @k18k/entrypoint-ts on npm (trusted publishing, provenance) and GitHub Packages
+#  2. SDK as @k18k/entrypoint-sdk with its per-platform connector packages on npm (trusted
+#     publishing, provenance) and GitHub Packages
 #  3. connector image: ghcr.io/k18k/entrypoint-connector
 on:
   push:
@@ -55,21 +56,29 @@ jobs:
             --title "Entrypoint ${{ steps.v.outputs.version }}" \
             --notes-file "$RUNNER_TEMP/notes.md"
 
+      # The platform packages first: the SDK's optionalDependencies point at them.
       - name: SDK to GitHub Packages
-        working-directory: sdk/node
         env:
           NODE_AUTH_TOKEN: ${{ github.token }}
-        run: npm publish --ignore-scripts --@k18k:registry=https://npm.pkg.github.com
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          for f in dist/npm/k18k-entrypoint-sdk-*-"$VERSION".tgz; do
+            npm publish "$f" --ignore-scripts --@k18k:registry=https://npm.pkg.github.com
+          done
+          cd sdk/node && npm publish --ignore-scripts --@k18k:registry=https://npm.pkg.github.com
 
       # Trusted publishing (OIDC) needs no secret. npm only allows setting it up on an existing
       # package, so the very first publish uses an NPM_TOKEN secret, which is deleted afterwards.
       - name: SDK to npm
-        working-directory: sdk/node
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ steps.v.outputs.version }}
         run: |
           if [ -n "$NPM_TOKEN" ]; then echo "//registry.npmjs.org/:_authToken=\${NPM_TOKEN}" >> "$NPM_CONFIG_USERCONFIG"; fi
-          npm publish --ignore-scripts --provenance --@k18k:registry=https://registry.npmjs.org
+          for f in dist/npm/k18k-entrypoint-sdk-*-"$VERSION".tgz; do
+            npm publish "$f" --ignore-scripts --provenance --@k18k:registry=https://registry.npmjs.org
+          done
+          cd sdk/node && npm publish --ignore-scripts --provenance --@k18k:registry=https://registry.npmjs.org
 
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1

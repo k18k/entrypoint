@@ -1,12 +1,12 @@
 // e2e test app on native node:http, exposed through Entrypoint.
-// MODE=adapter — expose(handler) adapter from @k18k/entrypoint-ts/http
+// MODE=adapter — expose(handler) adapter from @k18k/entrypoint-sdk/http
 // MODE=base    — base contract: server.listen + tunnel()
 // The test control panel listens on 0.0.0.0:CTL_PORT (outside the tunnel).
 import crypto from "node:crypto";
 import http from "node:http";
 import { WebSocketServer } from "ws";
-import { tunnel } from "@k18k/entrypoint-ts";
-import { connectTo, expose } from "@k18k/entrypoint-ts/http";
+import { tunnel } from "@k18k/entrypoint-sdk";
+import { connectTo, expose } from "@k18k/entrypoint-sdk/http";
 
 const MODE = process.env.MODE ?? "adapter";
 const REPLICA = process.env.REPLICA ?? "r1";

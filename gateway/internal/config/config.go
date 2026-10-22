@@ -29,6 +29,7 @@ const (
 	UserCaddy  = "entrypoint-caddy"
 	UserFrps   = "entrypoint-frps"
 	UserVPN    = "entrypoint-headscale"
+	UserPanel  = "entrypoint-panel"
 )
 
 type Duration struct{ time.Duration }
@@ -78,6 +79,14 @@ type VPN struct {
 
 func (v VPN) Enabled() bool { return v.Name != "" }
 
+// Panel is the web panel, served by Caddy on its own name. Off while Name is empty.
+type Panel struct {
+	Name   string `json:"name,omitempty"` // e.g. panel.example.com
+	Listen string `json:"listen,omitempty"`
+}
+
+func (p Panel) Enabled() bool { return p.Name != "" }
+
 // Testing holds switches used only by the e2e tests.
 type Testing struct {
 	ApplyDelay    Duration `json:"applyDelay,omitempty"`    // pause after writing the snapshot, before Caddy
@@ -101,6 +110,7 @@ type Config struct {
 	HeartbeatTimeout int      `json:"heartbeatTimeout"` // seconds, frps
 	DriftInterval    Duration `json:"driftInterval"`
 	VPN              VPN      `json:"vpn"`
+	Panel            Panel    `json:"panel"`
 	Testing          Testing  `json:"testing,omitempty"`
 }
 
@@ -121,6 +131,7 @@ func Default() Config {
 		HeartbeatTimeout: 40,
 		DriftInterval:    Duration{30 * time.Second},
 		VPN:              VPN{Listen: "127.0.0.1:7600"},
+		Panel:            Panel{Listen: "127.0.0.1:7700"},
 	}
 }
 
@@ -148,7 +159,7 @@ func (c Config) Check() error {
 	}
 	// These values end up in root-owned systemd units or are executed, so they must be
 	// plain addresses and absolute paths (no unit-file syntax, e.g. from a restored backup).
-	for name, v := range map[string]string{"pluginListen": c.PluginListen, "frpsAPI": c.FrpsAPI, "vpn.listen": c.VPN.Listen} {
+	for name, v := range map[string]string{"pluginListen": c.PluginListen, "frpsAPI": c.FrpsAPI, "vpn.listen": c.VPN.Listen, "panel.listen": c.Panel.Listen} {
 		ap, err := netip.ParseAddrPort(v)
 		if err != nil || !ap.Addr().IsLoopback() {
 			return fmt.Errorf("invalid %s %q: expected a loopback address:port", name, v)
@@ -191,10 +202,14 @@ func (c Config) FrpsConfig() string          { return filepath.Join(c.DataDir, "
 func (c Config) AuthSnapshot() string        { return filepath.Join(c.DataDir, "state", "authz.json") }
 func (c Config) FrpsAPIPasswordFile() string { return filepath.Join(c.DataDir, "secrets", "frps-api") }
 func (c Config) HeadscaleDir() string        { return filepath.Join(c.DataDir, "headscale") }
-func (c Config) HeadscaleConfig() string {
-	return filepath.Join(c.DataDir, "headscale", "headscale.yaml")
+
+// HeadscaleConfig is outside Headscale's data directory, so entrypointd can read it without the keys.
+func (c Config) HeadscaleConfig() string { return filepath.Join(EtcDir, "headscale.yaml") }
+func (c Config) TailscaleDir() string    { return filepath.Join(c.DataDir, "tailscale") }
+func (c Config) PanelDir() string        { return filepath.Join(c.DataDir, "panel") }
+func (c Config) PanelPasswordFile() string {
+	return filepath.Join(c.DataDir, "panel", "admin.hash")
 }
-func (c Config) TailscaleDir() string { return filepath.Join(c.DataDir, "tailscale") }
 
 // VPNMetrics is Headscale's metrics address, the port after VPN.Listen.
 func (c Config) VPNMetrics() string {

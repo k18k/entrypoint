@@ -1,5 +1,6 @@
 # Entrypoint: build, release packages and e2e tests.
 #
+#   make panel           web panel frontend (panel/ -> gateway/internal/panel/ui)
 #   make dist            gateway release tarball (dist/release/) and connector
 #   make sdk             npm SDK packages (dist/npm/)
 #   make release         GitHub release files (dist/release-assets/)
@@ -7,7 +8,7 @@
 #   make e2e             e2e tests of our code in Docker (SHARDS=4 parallel shards)
 #   make e2e-experiments experiments: Caddy and frp behavior (after changing versions.json)
 #   make e2e SUITE=Routing   one suite (names: Smoke Install TLS Routing Tunnels
-#                        Replicas State Revoke Ops SDK Resilience Secrets VPN)
+#                        Replicas State Revoke Ops SDK Resilience Secrets VPN Panel)
 #   make e2e-up / e2e-down   environment without running tests
 
 SHELL := /bin/bash
@@ -21,19 +22,25 @@ RUN ?=
 SHARDS ?= 4
 KEEP ?=
 
-.PHONY: all build deps dist sdk release connector-image test e2e e2e-experiments e2e-up e2e-down e2e-build e2e-shell clean
+.PHONY: all build deps panel dist sdk release connector-image test e2e e2e-experiments e2e-up e2e-down e2e-build e2e-shell clean
 
 all: dist sdk
 
 deps:
 	python3 scripts/fetch-deps.py $(PLATFORMS)
 
-build:
+# Web panel frontend, embedded into entrypoint-panel.
+panel:
+	cd panel && npm ci --no-audit --no-fund && npm run build
+	find gateway/internal/panel/ui -mindepth 1 ! -name .gitkeep -delete
+	cp -r panel/dist/. gateway/internal/panel/ui/
+
+build: panel
 	@for p in $(PLATFORMS); do \
 	  os=$${p%_*}; arch=$${p#*_}; ext=""; [ $$os = windows ] && ext=.exe; \
 	  out=dist/bin/$$p; mkdir -p $$out; \
 	  if [ $$os = linux ]; then \
-	    (cd gateway && CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build $(GOFLAGS_BUILD) -o ../$$out/ ./cmd/entrypoint ./cmd/entrypointd) || exit 1; \
+	    (cd gateway && CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build $(GOFLAGS_BUILD) -o ../$$out/ ./cmd/entrypoint ./cmd/entrypointd ./cmd/entrypoint-panel) || exit 1; \
 	  fi; \
 	  (cd gateway && CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build $(GOFLAGS_BUILD) -o ../$$out/entrypoint-connector$$ext ./cmd/entrypoint-connector) || exit 1; \
 	done
@@ -41,7 +48,7 @@ build:
 dist: deps build
 	@for p in $(filter linux_%,$(PLATFORMS)); do \
 	  name=entrypoint_$(VERSION)_$$p; d=dist/release/$$name; rm -rf $$d; mkdir -p $$d/bin; \
-	  cp dist/bin/$$p/entrypoint dist/bin/$$p/entrypointd $$d/bin/; \
+	  cp dist/bin/$$p/entrypoint dist/bin/$$p/entrypointd dist/bin/$$p/entrypoint-panel $$d/bin/; \
 	  cp dist/deps/$$p/caddy dist/deps/$$p/frps dist/deps/$$p/headscale dist/deps/$$p/tailscale dist/deps/$$p/tailscaled $$d/bin/; \
 	  cp versions.json $$d/; echo $(VERSION) > $$d/VERSION; \
 	  tar -C dist/release -czf dist/release/$$name.tar.gz $$name; \
@@ -56,16 +63,14 @@ dist: deps build
 
 # npm packages: the SDK and the per-platform packages with the connector and frpc.
 sdk: dist
-	cd sdk/node && npm pkg set version=$(VERSION)
-	python3 scripts/release-assets.py manifest
-	cd sdk/node && ENTRYPOINT_SKIP_CONNECTOR_DOWNLOAD=1 npm install --no-audit --no-fund && npm run check && npm run build
+	cd sdk/node && npm install --no-audit --no-fund && npm run check && npm run build
 	mkdir -p dist/npm
 	cd sdk/node && npm pack --pack-destination ../../dist/npm >/dev/null
 	@for p in $(PLATFORMS); do \
 	  np=$$(case $$p in linux_amd64) echo linux-x64;; linux_arm64) echo linux-arm64;; darwin_amd64) echo darwin-x64;; darwin_arm64) echo darwin-arm64;; windows_amd64) echo win32-x64;; esac); \
-	  os=$${np%-*}; cpu=$${np#*-}; d=dist/npm-src/$$np; rm -rf $$d; mkdir -p $$d/bin; \
+	  d=dist/npm-src/$$np; rm -rf $$d; mkdir -p $$d/bin; \
 	  cp dist/connector/$$p/* $$d/bin/; \
-	  printf '{\n  "name": "@k18k/entrypoint-%s",\n  "version": "%s",\n  "description": "Entrypoint connector and frpc for %s",\n  "license": "Apache-2.0",\n  "os": ["%s"],\n  "cpu": ["%s"],\n  "files": ["bin"]\n}\n' $$np $(VERSION) $$np $$os $$cpu > $$d/package.json; \
+	  node scripts/platform-package.mjs $$np $(VERSION) $$d; \
 	  (cd $$d && npm pack --pack-destination ../../npm >/dev/null); \
 	done
 	@ls dist/npm

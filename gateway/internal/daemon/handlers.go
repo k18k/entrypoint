@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/k18k/entrypoint/gateway/internal/api"
+	"github.com/k18k/entrypoint/gateway/internal/config"
 	"github.com/k18k/entrypoint/gateway/internal/spec"
 	"github.com/k18k/entrypoint/gateway/internal/store"
 	"github.com/k18k/entrypoint/gateway/internal/token"
@@ -53,6 +54,9 @@ func peerContext(ctx context.Context, c net.Conn) context.Context {
 
 func author(r *http.Request) string {
 	if v, ok := r.Context().Value(peerKey).(string); ok {
+		if v == config.UserPanel {
+			return "panel"
+		}
 		return "cli:" + v
 	}
 	return "cli"
@@ -72,6 +76,10 @@ func (d *Daemon) apiHandler() http.Handler {
 	m.HandleFunc("GET /v1/tokens", d.hTokens)
 	m.HandleFunc("POST /v1/tokens", d.hTokenCreate)
 	m.HandleFunc("POST /v1/tokens/{id}/revoke", d.hTokenRevoke)
+	m.HandleFunc("GET /v1/dns", d.hDNS)
+	m.HandleFunc("GET /v1/vpn", d.hVPN)
+	m.HandleFunc("POST /v1/vpn/keys", d.hVPNKey)
+	m.HandleFunc("DELETE /v1/vpn/nodes/{id}", d.hVPNNodeRm)
 	m.HandleFunc("GET /v1/ca", d.hCA)
 	m.HandleFunc("POST /v1/ca/rotate", d.hCARotate)
 	return m

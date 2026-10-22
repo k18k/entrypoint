@@ -59,7 +59,17 @@ The installer:
 - creates the private tunnel CA and the certificate for port 55555;
 - sets up systemd units tied together in `entrypoint.target`.
 
-Running `entrypoint install` again is safe: it updates the units and removes nothing. It also turns on the VPN on an existing gateway (below).
+Running `entrypoint install` again is safe: it updates the units and removes nothing. It also turns on the VPN and the panel on an existing gateway (below).
+
+### Web panel
+
+```bash
+# DNS: A panel.example.com -> <server IP>
+sudo entrypoint install --panel-name panel.example.com   # prints the first password once
+sudo entrypoint panel password                           # change it (signs out all sessions)
+```
+
+Everything the CLI does for day-to-day work is in the panel at `https://panel.example.com`: apps (a service with its hosts and a token, created in one step, with ready commands to connect replicas), routes, tokens, VPN machines and keys, DNS records and revisions. The panel is its own process behind Caddy and talks to entrypointd through its local API, so the gateway keeps working when the panel is down.
 
 **Practice on Let's Encrypt staging first.** A route with `--acme-staging` gets a test certificate and does not use up the limit of 50 certificates per domain per week.
 
@@ -107,6 +117,20 @@ sudo entrypoint route add app.example.com --to 100.64.0.2:3000
 sudo entrypoint vpn rm <id>                  # removes a machine from the VPN
 ```
 
+**Without Tailscale: the connector as a VPN node.** It joins the VPN in userspace (no root, no TUN device) and publishes or reaches single ports. A bundle comes from the panel (VPN → Publish a service / Use from an app) or `sudo entrypoint vpn key --bundle`.
+
+```bash
+# On the database machine: local Postgres becomes vatro-postgres:5432 in the VPN.
+curl -fsSLO https://github.com/k18k/entrypoint/releases/latest/download/install-connector.sh
+sudo sh install-connector.sh vpn --name vatro-postgres --expose 5432
+
+# On an app machine: vatro-postgres:5432 works as if Postgres ran locally
+# (the script adds `127.0.0.1 vatro-postgres` to /etc/hosts).
+sudo sh install-connector.sh vpn --name vatro-app --forward vatro-postgres:5432
+```
+
+Both ask for `ENTRYPOINT_VPN` and run as systemd services. Machines that do run the Tailscale client resolve VPN names directly (`vatro-postgres` or `vatro-postgres.ep.internal`).
+
 - Relaying and NAT traversal use the gateway's built-in DERP server only; nothing goes through Tailscale Inc.'s servers.
 - Every machine in the VPN can reach every other one (no ACL policy yet).
 - The VPN name is fixed once set, and no route may use it. Don't run another Tailscale on the gateway itself.
@@ -126,17 +150,17 @@ sudo entrypoint token create --service api      # prints ENTRYPOINT_CONNECT only
 In your app, install the SDK from npm:
 
 ```bash
-npm install @k18k/entrypoint-ts
+npm install @k18k/entrypoint-sdk
 ```
 
 The same package is in GitHub Packages (`@k18k:registry=https://npm.pkg.github.com` in `.npmrc`; GitHub requires a token with `read:packages` even for public packages).
 
-The SDK downloads the connector and frpc for your platform from the matching GitHub release and verifies their SHA256. npm 11 does not run dependency install scripts by default (`npm warn install-scripts`); the SDK then downloads the connector on the first `expose()`/`tunnel()`. To download it at install time: `npm install-scripts approve @k18k/entrypoint-ts`.
+The connector and frpc come in a per-platform optional dependency (`@k18k/entrypoint-sdk-linux-x64` and so on) that npm picks for your machine; nothing is downloaded at run time and no install script runs.
 
 **`node:http` adapter (recommended).** It gives a full drain: `Connection: close`, and SSE and WebSockets closed with code 1001. It accepts any `(req, res)` handler, so it works with plain `node:http` and with framework apps (an Express app, `app.callback()` in Koa).
 
 ```js
-import { expose } from "@k18k/entrypoint-ts/http";
+import { expose } from "@k18k/entrypoint-sdk/http";
 
 const handler = (req, res) => {
   if (req.url === "/health") return res.end("ok");
@@ -151,7 +175,7 @@ const conn = await expose(handler, { service: "api", healthCheck: "/health" });
 **Base contract.** A tunnel to an address where the application is already listening:
 
 ```js
-import { tunnel } from "@k18k/entrypoint-ts";
+import { tunnel } from "@k18k/entrypoint-sdk";
 
 const t = await tunnel({ service: "api", upstream: "http://127.0.0.1:3000", healthCheck: "/health" });
 process.on("SIGTERM", () => t.drain({ timeoutMs: 30_000 }).then(() => process.exit(0)));
@@ -275,12 +299,11 @@ Each copy of the environment has its own compose project and the subnets `10.77.
 
 ## What is not in v0.1
 
-- Web panel, Fastify and Hono adapters, automatic updates with rollback and maintenance mode (v0.2.0).
+- Fastify and Hono adapters, automatic updates with rollback and maintenance mode (v0.2.0).
 - Full failure tests, ARM64 tests, a performance benchmark (v0.2.0).
 - Per-IP connection limits on the public side (decision before v0.2.0).
 - Static site releases (v0.3), TCP/UDP forwarding and TURN (v0.4).
 - Wildcard certificates via DNS-01, OIDC, HA (v1).
-- Publishing to the npmjs.com registry: the SDK is available from git and from GitHub Packages.
 - The connector for Linux arm64, macOS and Windows is in the release, but has no e2e tests.
 
 ## License

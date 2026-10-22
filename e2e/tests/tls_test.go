@@ -191,6 +191,6 @@ func rebundle(t *testing.T, e *h.Env, bundle, caPEM string) string {
 	t.Helper()
 	e.WriteFile(h.ClientA, "/run/ep/rebundle.connect", bundle, "600")
 	e.WriteFile(h.ClientA, "/run/ep/other-ca.pem", caPEM, "644")
-	out := e.MustSh(h.ClientA, `ENTRYPOINT_CONNECT="$(cat /run/ep/rebundle.connect)" /app/node_modules/@k18k/entrypoint-linux-x64/bin/entrypoint-connector rebundle --ca /run/ep/other-ca.pem`)
+	out := e.MustSh(h.ClientA, `ENTRYPOINT_CONNECT="$(cat /run/ep/rebundle.connect)" /app/node_modules/@k18k/entrypoint-sdk-linux-x64/bin/entrypoint-connector rebundle --ca /run/ep/other-ca.pem`)
 	return strings.TrimSpace(out)
 }

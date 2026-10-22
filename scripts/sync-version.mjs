@@ -14,10 +14,13 @@ const edit = (p, re, to) => {
 const { version } = JSON.parse(read("package.json"));
 
 edit("versions.json", /("entrypoint":\s*")[^"]*"/, `$1${version}"`);
-edit("scripts/install.sh", /(ENTRYPOINT_VERSION:-)[^}]*\}/, `$1${version}}`);
+for (const p of ["scripts/install.sh", "scripts/install-connector.sh"]) {
+  edit(p, /(ENTRYPOINT_VERSION:-)[^}]*\}/, `$1${version}}`);
+}
 for (const p of ["sdk/node/package.json", "sdk/node/package-lock.json"]) {
   const j = JSON.parse(read(p));
   j.version = version;
+  for (const k of Object.keys(j.optionalDependencies ?? {})) j.optionalDependencies[k] = version;
   if (j.packages?.[""]) j.packages[""].version = version;
   write(p, JSON.stringify(j, null, 2) + "\n");
 }

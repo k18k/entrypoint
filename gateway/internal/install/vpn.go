@@ -19,6 +19,9 @@ import (
 // VPNUser is the Headscale user that owns every node, the gateway included.
 const VPNUser = "entrypoint"
 
+// VPNDomain is the MagicDNS domain: nodes reach each other as <name> or <name>.ep.internal.
+const VPNDomain = "ep.internal"
+
 // STUNPort is the embedded DERP server's STUN port (UDP, public).
 const STUNPort = 3478
 
@@ -68,7 +71,8 @@ func HeadscaleConfig(cfg config.Config) ([]byte, error) {
 		"log": map[string]any{"level": "info", "format": "text"},
 		// No policy file: every node may reach every other node.
 		"policy": map[string]any{"mode": "file", "path": ""},
-		"dns":                    map[string]any{"magic_dns": false, "override_local_dns": false, "nameservers": map[string]any{"global": []string{}}},
+		// MagicDNS without taking over the nodes' other DNS: names in VPNDomain only.
+		"dns":                    map[string]any{"magic_dns": true, "base_domain": VPNDomain, "override_local_dns": false, "nameservers": map[string]any{"global": []string{}}},
 		"unix_socket":            config.HeadscaleSocket,
 		"unix_socket_permission": "0770",
 		"logtail":                map[string]any{"enabled": false},

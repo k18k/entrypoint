@@ -220,7 +220,7 @@ The tunnel port uses the private CA (section 6), not ACME.
 The base contract is a tunnel to an existing local address. The application listens as usual, and the SDK exposes that address through the tunnel. Framework adapters give stronger drain guarantees (section 7).
 
 ```ts
-import { tunnel } from "@k18k/entrypoint-ts"
+import { tunnel } from "@k18k/entrypoint-sdk"
 
 const t = await tunnel({
   connect: process.env.ENTRYPOINT_CONNECT, // gateway name, port, CA, token
@@ -235,14 +235,14 @@ process.on("SIGTERM", () => t.drain({ timeoutMs: 30_000 }))
 The same from the command line, for an application in any language:
 
 ```bash
-npx @k18k/entrypoint-ts tunnel --service api --upstream http://127.0.0.1:3000
+npx @k18k/entrypoint-sdk tunnel --service api --upstream http://127.0.0.1:3000
 ```
 
 | Adapter | Version | What it does |
 | --- | --- | --- |
-| `@k18k/entrypoint-ts/http` | v0.1 | `expose(handler)` (any `(req, res)` handler, including an Express app) starts a server on `127.0.0.1:0` and the tunnel; on drain it stops accepting connections, sends `Connection: close` and closes WebSockets with code 1001 |
-| `@k18k/entrypoint-ts/fastify` | v0.2.0 | Waits for `ready()` and uses the Fastify server, with the same drain |
-| `@k18k/entrypoint-ts/hono` | v0.2.0 | Runs the handler through the Node adapter for Hono, with the same drain |
+| `@k18k/entrypoint-sdk/http` | v0.1 | `expose(handler)` (any `(req, res)` handler, including an Express app) starts a server on `127.0.0.1:0` and the tunnel; on drain it stops accepting connections, sends `Connection: close` and closes WebSockets with code 1001 |
+| `@k18k/entrypoint-sdk/fastify` | v0.2.0 | Waits for `ready()` and uses the Fastify server, with the same drain |
+| `@k18k/entrypoint-sdk/hono` | v0.2.0 | Runs the handler through the Node adapter for Hono, with the same drain |
 
 Each adapter has CI tests for the supported ranges of framework and Node.js versions. Bun and Deno work through the base contract until tests are added.
 
@@ -253,7 +253,13 @@ Each adapter has CI tests for the supported ranges of framework and Node.js vers
 - handles reconnect and drain and sends JSON events (`connected`, `healthy`, `draining`, `disconnected`) that the SDK only observes,
 - never prints the token or the connection bundle.
 
-The connector talks only to frps; there is no separate control channel to entrypointd. Supported platforms: Linux x64 and arm64, macOS x64 and arm64, Windows x64, through per-platform `optionalDependencies`.
+The connector talks only to frps; there is no separate control channel to entrypointd. Supported platforms: Linux x64 and arm64, macOS x64 and arm64, Windows x64, through per-platform `optionalDependencies` (`@k18k/entrypoint-sdk-<os>-<cpu>` with the connector and frpc); the SDK never downloads binaries.
+
+**VPN mode (from v0.2.0).** `entrypoint-connector vpn` joins the built-in VPN as a userspace node (tsnet, no root, no TUN device and no Tailscale installation) with an `ENTRYPOINT_VPN` bundle (`epv1.`: control server URL and a pre-auth key), and keeps the node identity in a state directory so restarts need no new key.
+
+- `--name vatro-postgres --expose 5432` publishes `127.0.0.1:5432` of that machine in the VPN as `vatro-postgres:5432`.
+- `--forward vatro-postgres:5432` listens on `127.0.0.1:5432` and connects through the VPN; the node name resolves inside the connector, so the machine needs no MagicDNS.
+- `scripts/install-connector.sh` installs the connector and frpc on a Linux machine (SHA256-checked) and runs a mode as a systemd service; it reads the bundle from the terminal into a 0600 environment file and, for `--forward`, adds an `/etc/hosts` entry so the application connects to `vatro-postgres:5432` unchanged. In Docker the forwarding container takes the service name instead.
 
 ## 11. CLI
 
@@ -289,7 +295,10 @@ The panel is minimal and has no state of its own. Every operation goes through t
 - **Session:** a cookie with the HttpOnly, Secure and SameSite=Strict attributes.
 - **CSRF:** every state-changing operation requires a CSRF token and a matching Origin header.
 - **Exposure:** the panel is publicly reachable through Caddy on its own domain; only its backend port is private. Available restrictions: an allowlist of IP addresses for the panel domain, or a local mode without a public route, accessed through an SSH tunnel. The installer recommends one of them.
-- **Stack:** Express backend (TypeScript), React + Vite frontend built statically and served by Caddy.
+- **Stack:** a Go backend (`entrypoint-panel`, its own process and system user, on 127.0.0.1:7700, talking to entrypointd through the API socket, so the gateway needs no Node.js runtime) with a React + Vite frontend embedded in the binary. Caddy serves it on `--panel-name` with an ACME certificate; the name is reserved like the VPN's. Revisions made from the panel have the author `panel`.
+- **Apps:** creating an app makes the service, its routes and a token in one step and shows `ENTRYPOINT_CONNECT` once with commands for a Linux machine, the Node.js SDK and Docker Compose. Hosts are bound here, by the administrator, never claimed by a connector, so a leaked token cannot publish another domain.
+- **VPN:** machines with their addresses, removal, and keys for publishing a service (`--expose`), using one from an app (`--forward`) or joining with the Tailscale client.
+- **Password:** generated at install and shown once; `entrypoint panel password` changes it and ends all sessions.
 
 ## 13. Installation and operations
 

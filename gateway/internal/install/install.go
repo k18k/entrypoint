@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/k18k/entrypoint/gateway/internal/config"
+	"github.com/k18k/entrypoint/gateway/internal/panel"
 	"github.com/k18k/entrypoint/gateway/internal/pki"
 	"github.com/k18k/entrypoint/gateway/internal/render"
 	"github.com/k18k/entrypoint/gateway/internal/spec"
@@ -162,7 +163,15 @@ func Install(o Options) error {
 		if h, err := spec.NormalizeHost(cfg.VPN.Name); err != nil || h != cfg.VPN.Name || strings.HasPrefix(h, "*.") || h == cfg.GatewayName {
 			return fmt.Errorf("--vpn-name must be its own DNS name, e.g. vpn.example.com")
 		}
-		if err := vpnHostFree(cfg); err != nil {
+		if err := hostFree(cfg, cfg.VPN.Name, "--vpn-name"); err != nil {
+			return err
+		}
+	}
+	if cfg.Panel.Enabled() {
+		if h, err := spec.NormalizeHost(cfg.Panel.Name); err != nil || h != cfg.Panel.Name || strings.HasPrefix(h, "*.") || h == cfg.GatewayName || h == cfg.VPN.Name {
+			return fmt.Errorf("--panel-name must be its own DNS name, e.g. panel.example.com")
+		}
+		if err := hostFree(cfg, cfg.Panel.Name, "--panel-name"); err != nil {
 			return err
 		}
 	}
@@ -171,14 +180,23 @@ func Install(o Options) error {
 	if cfg.VPN.Enabled() {
 		users = append(users, config.UserVPN)
 	}
+	if cfg.Panel.Enabled() {
+		users = append(users, config.UserPanel)
+	}
 	for _, u := range users {
 		if err := ensureUser(u); err != nil {
 			return err
 		}
 	}
-	// entrypointd needs Caddy's admin socket and writes the certificate frps reads.
-	if err := run("usermod", "-a", "-G", config.UserCaddy+","+config.UserFrps, config.UserDaemon); err != nil {
+	// entrypointd needs Caddy's admin socket, writes the certificate frps reads and manages VPN nodes.
+	if err := run("usermod", "-a", "-G", strings.TrimSpace(config.UserCaddy+","+config.UserFrps+strings.ReplaceAll(vpnGroup(cfg), " ", ",")), config.UserDaemon); err != nil {
 		return err
+	}
+	if cfg.Panel.Enabled() {
+		// The panel talks to entrypointd through its API socket.
+		if err := run("usermod", "-a", "-G", config.UserDaemon, config.UserPanel); err != nil {
+			return err
+		}
 	}
 
 	dd := cfg.DataDir
@@ -201,6 +219,9 @@ func Install(o Options) error {
 			dir{cfg.HeadscaleDir(), config.UserVPN, config.UserVPN, 0o700},
 			dir{cfg.TailscaleDir(), "", "", 0o700})
 	}
+	if cfg.Panel.Enabled() {
+		dirs = append(dirs, dir{cfg.PanelDir(), "", config.UserPanel, 0o750})
+	}
 	for _, d := range dirs {
 		if err := ensureDir(d); err != nil {
 			return fmt.Errorf("directory %s: %w", d.path, err)
@@ -209,6 +230,11 @@ func Install(o Options) error {
 	if cfg.VPN.Enabled() {
 		// Restored files arrive owned by root, and the user's UID may differ on a new machine.
 		if err := run("chown", "-R", config.UserVPN+":"+config.UserVPN, cfg.HeadscaleDir()); err != nil {
+			return err
+		}
+	}
+	if cfg.Panel.Enabled() {
+		if err := run("chown", "-R", "root:"+config.UserPanel, cfg.PanelDir()); err != nil {
 			return err
 		}
 	}
@@ -299,6 +325,18 @@ func Install(o Options) error {
 		}
 	}
 
+	var panelPassword string
+	if cfg.Panel.Enabled() && !exists(cfg.PanelPasswordFile()) {
+		pw, err := panel.RandomPassword()
+		if err != nil {
+			return err
+		}
+		if err := SetPanelPassword(cfg, pw); err != nil {
+			return err
+		}
+		panelPassword = pw
+	}
+
 	if err := writeUnits(cfg, o.ConfigPath); err != nil {
 		return err
 	}
@@ -315,6 +353,9 @@ func Install(o Options) error {
 	if cfg.VPN.Enabled() {
 		start = append(start, VPNUnits...)
 	}
+	if cfg.Panel.Enabled() {
+		start = append(start, PanelUnit)
+	}
 	if err := run("systemctl", append([]string{"enable"}, start...)...); err != nil {
 		return err
 	}
@@ -327,13 +368,31 @@ func Install(o Options) error {
 		return err
 	}
 	if cfg.VPN.Enabled() {
-		return joinVPN(cfg, out)
+		if err := joinVPN(cfg, out); err != nil {
+			return err
+		}
+	}
+	if panelPassword != "" {
+		// Shown once, like a tunnel token.
+		fmt.Fprintf(out, "\nPanel: https://%s\nInitial password (shown only now): %s\nChange it with: sudo entrypoint panel password\n", cfg.Panel.Name, panelPassword)
 	}
 	return nil
 }
 
-// vpnHostFree rejects a VPN name that existing routes already use.
-func vpnHostFree(cfg config.Config) error {
+// SetPanelPassword stores the argon2id hash of the panel administrator's password.
+func SetPanelPassword(cfg config.Config, pw string) error {
+	if len(pw) < panel.MinPasswordLength {
+		return fmt.Errorf("the password needs at least %d characters", panel.MinPasswordLength)
+	}
+	h, err := panel.HashPassword(pw)
+	if err != nil {
+		return err
+	}
+	return writeOwned(cfg.PanelPasswordFile(), []byte(h+"\n"), 0o640, "", config.UserPanel)
+}
+
+// hostFree rejects a name for the gateway's own sites that existing routes already use.
+func hostFree(cfg config.Config, name, flag string) error {
 	if !exists(cfg.DBPath()) {
 		return nil
 	}
@@ -347,8 +406,8 @@ func vpnHostFree(cfg config.Config) error {
 		return err
 	}
 	for _, r := range head.Spec.Routes {
-		if r.Host == cfg.VPN.Name {
-			return fmt.Errorf("--vpn-name %s is used by route %s; remove the route first", cfg.VPN.Name, r.ID)
+		if r.Host == name {
+			return fmt.Errorf("%s %s is used by route %s; remove the route first", flag, name, r.ID)
 		}
 	}
 	return nil
@@ -361,6 +420,9 @@ func waitHealthy(cfg config.Config, timeout time.Duration) error {
 			units := []string{"is-active", "--quiet", "entrypointd.service", "entrypoint-caddy.service", "entrypoint-frps.service"}
 			if cfg.VPN.Enabled() {
 				units = append(units, VPNUnits...)
+			}
+			if cfg.Panel.Enabled() {
+				units = append(units, PanelUnit)
 			}
 			if err := run("systemctl", units...); err == nil {
 				return nil

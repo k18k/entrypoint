@@ -1,0 +1,56 @@
+{
+  "version": "0.1.1",
+  "frp": "0.71.1",
+  "platforms": {
+    "linux_amd64": {
+      "connector": {
+        "url": "https://github.com/k18k/entrypoint/releases/download/v0.1.1/entrypoint-connector_0.1.1_linux_amd64",
+        "sha256": "ebda2fe2cf0d01c46514c34a7e2c1859295dafb1457b4e21428305a5246e53c7"
+      },
+      "frpc": {
+        "url": "https://github.com/k18k/entrypoint/releases/download/v0.1.1/frpc_0.71.1_linux_amd64",
+        "sha256": "35c6054d4549bbcf2f02875543895fd9e44c2aae2925f61cd8ff5a693703c28b"
+      }
+    },
+    "linux_arm64": {
+      "connector": {
+        "url": "https://github.com/k18k/entrypoint/releases/download/v0.1.1/entrypoint-connector_0.1.1_linux_arm64",
+        "sha256": "e483e035d559a8d8be3d32ecbf1e1f769cedb025c84c21f18aadcdaac3f36398"
+      },
+      "frpc": {
+        "url": "https://github.com/k18k/entrypoint/releases/download/v0.1.1/frpc_0.71.1_linux_arm64",
+        "sha256": "651de3428bdc7f37b4bad76ed3236b221939a989c433cd7daee79d2817519f8b"
+      }
+    },
+    "darwin_amd64": {
+      "connector": {
+        "url": "https://github.com/k18k/entrypoint/releases/download/v0.1.1/entrypoint-connector_0.1.1_darwin_amd64",
+        "sha256": "9b8139f1ee3623da597bd583816f8988ab272e64f176a42262197765f58ff36f"
+      },
+      "frpc": {
+        "url": "https://github.com/k18k/entrypoint/releases/download/v0.1.1/frpc_0.71.1_darwin_amd64",
+        "sha256": "01cb3d59aba860a7097e1343ce04f9b5d8164b7488e21f5c551a34e62406c4c6"
+      }
+    },
+    "darwin_arm64": {
+      "connector": {
+        "url": "https://github.com/k18k/entrypoint/releases/download/v0.1.1/entrypoint-connector_0.1.1_darwin_arm64",
+        "sha256": "67b72d0fd24577ea6543b3828a712bdaa1fa44a1085d7c76709a8cb8404f5720"
+      },
+      "frpc": {
+        "url": "https://github.com/k18k/entrypoint/releases/download/v0.1.1/frpc_0.71.1_darwin_arm64",
+        "sha256": "7aaaba058dbeeedc86be876c44912c4f33756ab3e6e7a085f8d7af7814a073c1"
+      }
+    },
+    "windows_amd64": {
+      "connector": {
+        "url": "https://github.com/k18k/entrypoint/releases/download/v0.1.1/entrypoint-connector_0.1.1_windows_amd64.exe",
+        "sha256": "6fd0069c202f877992594e607391a17036e3bf6ab4ec36f2937bac00d49e862e"
+      },
+      "frpc": {
+        "url": "https://github.com/k18k/entrypoint/releases/download/v0.1.1/frpc_0.71.1_windows_amd64.exe",
+        "sha256": "23d11640bee87207c7a99d006b84c554df997feeba7ac7243db20a88a9cb5e01"
+      }
+    }
+  }
+}

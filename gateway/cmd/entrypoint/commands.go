@@ -42,6 +42,7 @@ func cmdInstall(args []string) error {
 	acmeProfile := fs.String("test-acme-profile", "", "tests only: ACME profile")
 	renewInterval := fs.Duration("test-renew-interval", 0, "tests only: Caddy renewal check interval")
 	vpnName := fs.String("vpn-name", "", "set up the built-in VPN with its control server at this DNS name, e.g. vpn.example.com")
+	panelName := fs.String("panel-name", "", "serve the web panel at this DNS name, e.g. panel.example.com")
 	noStart := fs.Bool("no-start", false, "do not start the services")
 	if _, err := parse(fs, args); err != nil {
 		return err
@@ -96,6 +97,9 @@ func cmdInstall(args []string) error {
 	}
 	if set["vpn-name"] {
 		cfg.VPN.Name = strings.ToLower(*vpnName)
+	}
+	if set["panel-name"] {
+		cfg.Panel.Name = strings.ToLower(*panelName)
 	}
 	if set["test-renew-interval"] {
 		cfg.Testing.RenewInterval = config.Duration{Duration: *renewInterval}
@@ -167,6 +171,9 @@ func cmdStatus(args []string) error {
 	if cfg.VPN.Enabled() {
 		names = append(names, "entrypoint-headscale", "entrypoint-tailscaled")
 	}
+	if cfg.Panel.Enabled() {
+		names = append(names, "entrypoint-panel")
+	}
 	for _, u := range names {
 		units[u] = unitState(u + ".service")
 	}
@@ -184,6 +191,9 @@ func cmdStatus(args []string) error {
 	fmt.Printf("Services: entrypointd=%s caddy=%s frps=%s\n", units["entrypointd"], units["entrypoint-caddy"], units["entrypoint-frps"])
 	if cfg.VPN.Enabled() {
 		fmt.Printf("VPN: %s headscale=%s tailscaled=%s\n", cfg.VPN.Name, units["entrypoint-headscale"], units["entrypoint-tailscaled"])
+	}
+	if cfg.Panel.Enabled() {
+		fmt.Printf("Panel: https://%s panel=%s\n", cfg.Panel.Name, units["entrypoint-panel"])
 	}
 	if apiErr != nil {
 		fmt.Println("entrypointd unavailable:", apiErr)
@@ -650,12 +660,13 @@ func cmdLogs(args []string) error {
 		return err
 	}
 	if len(pos) != 1 {
-		return exitError{2, "usage: entrypoint logs <entrypointd|caddy|frps|headscale|tailscaled>"}
+		return exitError{2, "usage: entrypoint logs <entrypointd|caddy|frps|headscale|tailscaled|panel>"}
 	}
 	unit := map[string]string{"entrypointd": "entrypointd.service", "caddy": "entrypoint-caddy.service", "frps": "entrypoint-frps.service",
-		"headscale": "entrypoint-headscale.service", "tailscaled": "entrypoint-tailscaled.service"}[pos[0]]
+		"headscale": "entrypoint-headscale.service", "tailscaled": "entrypoint-tailscaled.service",
+		"panel": "entrypoint-panel.service"}[pos[0]]
 	if unit == "" {
-		return exitError{2, "service: entrypointd, caddy, frps, headscale or tailscaled"}
+		return exitError{2, "service: entrypointd, caddy, frps, headscale, tailscaled or panel"}
 	}
 	a := []string{"-u", unit, "--no-pager", "-n", strconv.Itoa(*n)}
 	if *follow {

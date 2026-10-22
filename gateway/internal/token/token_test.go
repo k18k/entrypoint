@@ -53,3 +53,24 @@ func TestBundle(t *testing.T) {
 		t.Error("bundle without a CA accepted")
 	}
 }
+
+func TestVPNBundle(t *testing.T) {
+	key := "hskey-auth-abcdefghijklmnopqrstuvwxyz0123456789"
+	enc, err := VPNBundle{Server: "https://vpn.example.com", Key: key}.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := DecodeVPNBundle(enc); err != nil || got.Key != key {
+		t.Fatalf("decode: %v", err)
+	}
+	if _, err := DecodeVPNBundle(enc[:len(enc)-4]); err == nil || strings.Contains(err.Error(), key) {
+		t.Fatalf("corrupted bundle: %v", err)
+	}
+	if _, err := (VPNBundle{Server: "http://vpn.example.com", Key: key}).Encode(); err != nil {
+		t.Fatal(err)
+	}
+	plain, _ := VPNBundle{Server: "http://vpn.example.com", Key: key}.Encode()
+	if _, err := DecodeVPNBundle(plain); err == nil {
+		t.Fatal("plain HTTP control server accepted")
+	}
+}

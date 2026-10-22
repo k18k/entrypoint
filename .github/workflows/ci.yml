@@ -39,11 +39,14 @@ jobs:
         run: make test
       - name: SDK (typecheck, oxlint, oxfmt, build)
         working-directory: sdk/node
-        env:
-          ENTRYPOINT_SKIP_CONNECTOR_DOWNLOAD: "1"
         run: |
           npm ci --no-audit --no-fund
           npm run check
+          npm run build
+      - name: Panel frontend (typecheck, build)
+        working-directory: panel
+        run: |
+          npm ci --no-audit --no-fund
           npm run build
 
   e2e:

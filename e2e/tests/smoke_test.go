@@ -24,8 +24,8 @@ func TestSmoke_Environment(t *testing.T) {
 	}
 	for _, c := range []string{h.ClientA, h.ClientB, h.Attacker} {
 		e.MustExec(c, "frpc", "-v")
-		e.MustExec(c, "node", "-e", "import('@k18k/entrypoint-ts').then(m => { if (!m.tunnel) process.exit(1) })")
-		e.MustSh(c, "cd /app && node -e \"import('@k18k/entrypoint-ts').then(m => console.log(m.findConnector()))\"")
+		e.MustExec(c, "node", "-e", "import('@k18k/entrypoint-sdk').then(m => { if (!m.tunnel) process.exit(1) })")
+		e.MustSh(c, "cd /app && node -e \"import('@k18k/entrypoint-sdk').then(m => console.log(m.findConnector()))\"")
 	}
 	if out := e.MustSh(h.Gateway, "curl -s http://"+h.UpstreamVPN+"/ping"); !strings.Contains(out, "vpn-upstream") {
 		t.Fatalf("upstream over the private network: %s", out)

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""Assembles the release files in dist/release-assets/ and the SDK connector manifest.
+"""Assembles the release files in dist/release-assets/.
 
-  scripts/release-assets.py manifest   -> sdk/node/connector.json (URLs and SHA256 of the binaries)
   scripts/release-assets.py assets     -> dist/release-assets/ + SHA256SUMS
 
 The URLs point to the release at https://github.com/<repo>/releases/download/v<version>/.
@@ -43,16 +42,6 @@ def binaries():
     return out
 
 
-def manifest():
-    plats = {}
-    for p, kind, src, name in binaries():
-        plats.setdefault(p, {})[kind] = {"url": f"{BASE}/{name}", "sha256": sha256(src)}
-    out = os.path.join(ROOT, "sdk", "node", "connector.json")
-    json.dump({"version": VERSION, "frp": FRP, "platforms": plats}, open(out, "w"), indent=2)
-    open(out, "a").write("\n")
-    print(f"{out}: {', '.join(sorted(plats))}")
-
-
 def assets():
     dest = os.path.join(ROOT, "dist", "release-assets")
     shutil.rmtree(dest, ignore_errors=True)
@@ -62,7 +51,8 @@ def assets():
         # Gateway only for linux_amd64 (ARM64 needs testing in v0.2.0).
         if "_linux_amd64.tar.gz" in name:
             files.append((os.path.join(ROOT, "dist", "release", name), name))
-    files.append((os.path.join(ROOT, "scripts", "install.sh"), "install.sh"))
+    for script in ("install.sh", "install-connector.sh"):
+        files.append((os.path.join(ROOT, "scripts", script), script))
     for _, _, src, name in binaries():
         files.append((src, name))
     sums = []
@@ -76,4 +66,4 @@ def assets():
 
 
 if __name__ == "__main__":
-    {"manifest": manifest, "assets": assets}[sys.argv[1]]()
+    {"assets": assets}[sys.argv[1]]()
