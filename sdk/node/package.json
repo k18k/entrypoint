@@ -10,7 +10,7 @@
     "directory": "sdk/node"
   },
   "bin": {
-    "entrypoint-tunnel": "./lib/cli.js"
+    "entrypoint-tunnel": "lib/cli.js"
   },
   "files": [
     "lib",
