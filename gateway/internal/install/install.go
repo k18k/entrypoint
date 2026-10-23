@@ -361,6 +361,8 @@ func Install(o Options) error {
 	}
 	// Restarting picks up new programs after a reinstall; on the first install it just starts them.
 	_ = run("systemctl", "stop", "entrypointd.service", "entrypointd.socket")
+	// Quick reinstalls and restores otherwise hit systemd's start limit for entrypointd.
+	_ = run("systemctl", append([]string{"reset-failed"}, start...)...)
 	if err := run("systemctl", append([]string{"restart"}, start...)...); err != nil {
 		return err
 	}

@@ -4,7 +4,7 @@
 
 ### Patch Changes
 
-- Every SDK platform package (`@k18k/entrypoint-sdk-<os>-<cpu>`) is published again, now from CI with provenance, so the connector is available on macOS (Apple Silicon) and Windows too. `entrypoint install` waits for Caddy's admin socket before it reports the gateway ready, so a change made right after install no longer fails, and the `entrypoint-tunnel` command is included in the SDK package again.
+- Every SDK platform package (`@k18k/entrypoint-sdk-<os>-<cpu>`) is published again, now from CI with provenance, so the connector is available on macOS (Apple Silicon) and Windows too. `entrypoint install` waits for Caddy's admin socket before it reports the gateway ready, so a change made right after install no longer fails; quick reinstalls and `backup restore` no longer hit systemd's start limit for entrypointd; and the `entrypoint-tunnel` command is included in the SDK package again.
 
 ## 0.2.0
 
