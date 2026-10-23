@@ -527,8 +527,8 @@ After each test, artifacts remain: the logs of all containers, the applied Caddy
 
 **v0.2.0, first public release:**
 
-- [ ] e2e suites 1–13 green in CI on x86\_64
-- [ ] Suites 1, 4 and 5 green on ARM64
+- [x] e2e suites 1–13 green in CI on x86\_64
+- [x] Suites 1, 4 and 5 green on ARM64
 - [x] Panel with session protection and CSRF
 - [x] Update with automatic rollback and maintenance mode
 - [x] Decision on per-IP connection limits
