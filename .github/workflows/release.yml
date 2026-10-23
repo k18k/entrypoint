@@ -79,18 +79,25 @@ jobs:
           done
           cd sdk/node && npm publish --ignore-scripts --@k18k:registry=https://npm.pkg.github.com
 
-      # Trusted publishing (OIDC) needs no secret. npm only allows setting it up on an existing
-      # package, so the very first publish uses an NPM_TOKEN secret, which is deleted afterwards.
+      # Trusted publishing (OIDC): configured on npmjs.com for each package (repo k18k/entrypoint,
+      # workflow release.yml); npm no longer accepts 2FA-bypass tokens for publishing.
+      # Versions already on npm are skipped, so a failed release can be re-run.
       - name: SDK to npm
         env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           VERSION: ${{ steps.v.outputs.version }}
         run: |
-          if [ -n "$NPM_TOKEN" ]; then echo "//registry.npmjs.org/:_authToken=\${NPM_TOKEN}" >> "$NPM_CONFIG_USERCONFIG"; fi
+          publish() {
+            if npm view "$1@$VERSION" version --registry https://registry.npmjs.org >/dev/null 2>&1; then
+              echo "$1@$VERSION is already on npm"
+            else
+              npm publish "$2" --ignore-scripts --provenance --@k18k:registry=https://registry.npmjs.org
+            fi
+          }
           for f in dist/npm/k18k-entrypoint-sdk-*-"$VERSION".tgz; do
-            npm publish "$f" --ignore-scripts --provenance --@k18k:registry=https://registry.npmjs.org
+            np=${f#dist/npm/k18k-entrypoint-sdk-}; np=${np%-"$VERSION".tgz}
+            publish "@k18k/entrypoint-sdk-$np" "$f"
           done
-          cd sdk/node && npm publish --ignore-scripts --provenance --@k18k:registry=https://registry.npmjs.org
+          publish @k18k/entrypoint-sdk "dist/npm/k18k-entrypoint-sdk-$VERSION.tgz"
 
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1

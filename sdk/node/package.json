@@ -1,6 +1,6 @@
 {
   "name": "@k18k/entrypoint-sdk",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Entrypoint SDK: a tunnel from an application to an Entrypoint gateway (base contract, node:http, Fastify and Hono adapters)",
   "homepage": "https://github.com/k18k/entrypoint",
   "license": "Apache-2.0",
@@ -64,11 +64,11 @@
     }
   },
   "optionalDependencies": {
-    "@k18k/entrypoint-sdk-darwin-arm64": "0.2.0",
-    "@k18k/entrypoint-sdk-darwin-x64": "0.2.0",
-    "@k18k/entrypoint-sdk-linux-arm64": "0.2.0",
-    "@k18k/entrypoint-sdk-linux-x64": "0.2.0",
-    "@k18k/entrypoint-sdk-win32-x64": "0.2.0"
+    "@k18k/entrypoint-sdk-darwin-arm64": "0.2.1",
+    "@k18k/entrypoint-sdk-darwin-x64": "0.2.1",
+    "@k18k/entrypoint-sdk-linux-arm64": "0.2.1",
+    "@k18k/entrypoint-sdk-linux-x64": "0.2.1",
+    "@k18k/entrypoint-sdk-win32-x64": "0.2.1"
   },
   "engines": {
     "node": ">=22"
