@@ -405,7 +405,8 @@ func hostFree(cfg config.Config, name, flag string) error {
 func waitHealthy(cfg config.Config, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if exists(cfg.APISocket) {
+		// Caddy is "active" before its admin socket exists; changes need the socket.
+		if exists(cfg.APISocket) && exists(cfg.CaddyAdminSocket) {
 			units := []string{"is-active", "--quiet", "entrypointd.service", "entrypoint-caddy.service", "entrypoint-frps.service"}
 			if cfg.VPN.Enabled() {
 				units = append(units, VPNUnits...)

@@ -1,18 +1,18 @@
 {
   "TestInstall_FreshAndPortScan": {
-    "seconds": 10.9,
+    "seconds": 9.9,
     "experiment": false
   },
   "TestInstall_ReinstallKeepsState": {
-    "seconds": 16.9,
+    "seconds": 15.7,
     "experiment": false
   },
   "TestInstall_UninstallAndPurge": {
-    "seconds": 13.2,
+    "seconds": 12.3,
     "experiment": false
   },
   "TestLimits_ConnectionFloodPerIP": {
-    "seconds": 31.9,
+    "seconds": 30.4,
     "experiment": false
   },
   "TestOps_BackupRestoreFreshContainer": {
@@ -268,15 +268,15 @@
     "experiment": false
   },
   "TestUpdate_BrokenMigrationRollsBack": {
-    "seconds": 19.9,
+    "seconds": 20.3,
     "experiment": false
   },
   "TestUpdate_FailedHealthRollsBack": {
-    "seconds": 21.1,
+    "seconds": 20.2,
     "experiment": false
   },
   "TestUpdate_Success": {
-    "seconds": 30.2,
+    "seconds": 29.2,
     "experiment": false
   },
   "TestVPN_BackupRestore": {
