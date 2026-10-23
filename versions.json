@@ -1,5 +1,5 @@
 {
-  "entrypoint": "0.1.1",
+  "entrypoint": "0.2.0",
   "go": "1.27.2",
   "node": "24.22.0",
   "caddy": {

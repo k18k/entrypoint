@@ -14,7 +14,7 @@
 # makes <name> resolve to it.
 set -eu
 
-VERSION="${ENTRYPOINT_VERSION:-0.1.1}"
+VERSION="${ENTRYPOINT_VERSION:-0.2.0}"
 REPO="${ENTRYPOINT_REPO:-k18k/entrypoint}"
 FILES="${ENTRYPOINT_CONNECTOR_FILES:-}" # tests: a directory with the release files instead of GitHub
 BIN=/usr/local/bin

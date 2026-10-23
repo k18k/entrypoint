@@ -7,7 +7,7 @@
 #   sudo ENTRYPOINT_TARBALL=./entrypoint_0.1.1_linux_amd64.tar.gz sh install.sh
 set -eu
 
-VERSION="${ENTRYPOINT_VERSION:-0.1.1}"
+VERSION="${ENTRYPOINT_VERSION:-0.2.0}"
 REPO="${ENTRYPOINT_REPO:-k18k/entrypoint}"
 TARBALL="${ENTRYPOINT_TARBALL:-}"
 OPT=/opt/entrypoint
