@@ -49,10 +49,10 @@
     "check": "npm run typecheck && npm run lint && npm run fmt:check"
   },
   "devDependencies": {
-    "@types/node": "26.6.5",
-    "oxfmt": "0.73.0",
-    "oxlint": "1.88.0",
-    "tsdown": "0.23.1",
+    "@types/node": "26.6.6",
+    "oxfmt": "0.75.0",
+    "oxlint": "1.90.0",
+    "tsdown": "0.23.4",
     "typescript": "7.0.2"
   },
   "peerDependencies": {
