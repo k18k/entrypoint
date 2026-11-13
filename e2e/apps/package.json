@@ -5,7 +5,7 @@
   "dependencies": {
     "ws": "8.22.0",
     "fastify": "5.12.7",
-    "hono": "4.13.13",
+    "hono": "4.13.16",
     "@hono/node-server": "2.1.5"
   }
 }
